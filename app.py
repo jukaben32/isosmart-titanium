@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-IsoSmart Titanium v4.0 - Executive Suite
-Sistema Inteligente de Presupuestos y Visualización BIM
-para Construcción con Poliestireno Expandido
+IsoSmart Titanium v4.5 - Professional Suite
+Sistema Inteligente de Presupuestos, Visualización BIM y Marketing
+para Construcción con Poliestireno Expandido en República Dominicana
 
 Autor: jukaben32
 Licencia: MIT
@@ -22,20 +22,21 @@ import os
 from io import BytesIO
 from typing import Dict, List, Optional, Tuple
 import hashlib
+import time
 
 # ============================================================================
 # CONFIGURACIÓN DE PÁGINA Y ESTILOS
 # ============================================================================
 
 st.set_page_config(
-    page_title="IsoSmart Titanium v4.0",
+    page_title="IsoSmart Titanium - Construcción Inteligente RD",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': 'https://github.com/jukaben32/isosmart-titanium',
         'Report a bug': 'https://github.com/jukaben32/isosmart-titanium/issues',
-        'About': "# IsoSmart Titanium v4.0\nSistema profesional para construcción con poliestireno expandido"
+        'About': "# IsoSmart Titanium v4.5\nConstrucción con poliestireno expandido en República Dominicana"
     }
 )
 
@@ -50,12 +51,20 @@ st.markdown("""
         text-align: center;
         margin-bottom: 2rem;
     }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    .info-card {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        margin: 1rem 0;
+        border-left: 5px solid #1e3c72;
+    }
+    .benefit-card {
+        background: white;
         padding: 1.5rem;
         border-radius: 10px;
-        color: white;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         text-align: center;
+        height: 100%;
     }
     .stButton>button {
         width: 100%;
@@ -63,17 +72,34 @@ st.markdown("""
         font-weight: bold;
         padding: 0.75rem 1rem;
     }
-    .download-button {
-        background-color: #28a745;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 5px;
-        cursor: pointer;
-        font-size: 16px;
+    .big-metric {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #1e3c72;
+    }
+    .comparison-table td, .comparison-table th {
+        padding: 12px;
+        text-align: left;
+    }
+    .highlight-green {
+        background-color: #d4edda;
+        color: #155724;
+        font-weight: bold;
+    }
+    .highlight-blue {
+        background-color: #d1ecf1;
+        color: #0c5460;
+        font-weight: bold;
     }
     div[data-testid="stMetricValue"] {
         font-size: 2rem;
+    }
+    .team-card {
+        background: white;
+        padding: 2rem;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -88,6 +114,7 @@ class ProjectManager:
     def __init__(self, storage_file: str = "projects_db.json"):
         self.storage_file = storage_file
         self.projects = self._load_projects()
+        self.leads = self._load_leads()
 
     def _load_projects(self) -> Dict:
         if os.path.exists(self.storage_file):
@@ -97,6 +124,26 @@ class ProjectManager:
             except:
                 return {}
         return {}
+
+    def _load_leads(self) -> List:
+        leads_file = "leads_db.json"
+        if os.path.exists(leads_file):
+            try:
+                with open(leads_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except:
+                return []
+        return []
+
+    def save_lead(self, lead_data: Dict):
+        """Guarda un lead interesado"""
+        lead_data['fecha'] = datetime.now().isoformat()
+        lead_data['id'] = hashlib.md5(
+            f"{lead_data['nombre']}{lead_data['fecha']}".encode()
+        ).hexdigest()[:8]
+        self.leads.append(lead_data)
+        with open("leads_db.json", 'w', encoding='utf-8') as f:
+            json.dump(self.leads, f, indent=2, ensure_ascii=False)
 
     def save_project(self, project_id: str, data: Dict):
         self.projects[project_id] = {
@@ -135,6 +182,25 @@ class BudgetCalculator:
         "Poliestireno_EPS": 2800.00,
         "Fibra_Acero": 120.00,
         "Aditivo_Impermeabilizante": 850.00,
+        # Obra gris adicional
+        "Cemento_Saco": 450.00,
+        "Arena_m3": 1200.00,
+        "Piedra_m3": 1100.00,
+        "Ladrillounidad": 28.00,
+        # Obra terminada
+        "Ceramica_m2": 450.00,
+        "Porcelanato_m2": 850.00,
+        "Pintura_galon": 1200.00,
+        "Yeso_saco": 180.00,
+        "Puerta_interior": 8500.00,
+        "Ventana_aluminio_m2": 4500.00,
+        "Griferia_bano": 3500.00,
+        "Inodoro": 4200.00,
+        "Lavamanos": 2800.00,
+        "Ducha": 1800.00,
+        "Fregadero_cocina": 6500.00,
+        "Gabinete_cocina_ml": 12000.00,
+        "Meson_granito_ml": 18000.00,
     }
 
     FACTORES_RENDIMIENTO = {
@@ -145,41 +211,30 @@ class BudgetCalculator:
 
     @classmethod
     def calcular_area_muros(cls, area_construida: float, factor: float = 2.2) -> float:
-        """Calcula área de muros basada en área construida"""
         return area_construida * factor
 
     @classmethod
     def calcular_area_techo(cls, area_construida: float, factor: float = 1.10) -> float:
-        """Calcula área de techo con factor de voladizos"""
         return area_construida * factor
 
     @classmethod
     def calcular_volumen_hormigon(cls, area_muros: float, espesor: float = 0.12) -> float:
-        """Calcula volumen de hormigón necesario"""
         return area_muros * espesor
 
     @classmethod
     def calcular_acero_refuerzo(cls, area_construida: float, tipo: str = "varilla") -> Tuple[float, float]:
-        """Calcula cantidad de acero de refuerzo"""
         if tipo == "varilla":
-            kg_m2 = 8.5  # kg por m²
-        else:  # malla
+            kg_m2 = 8.5
+        else:
             kg_m2 = 6.0
-
         total_kg = area_construida * kg_m2
-        total_barras = total_kg / 12  # Barras de 12kg aprox
-
+        total_barras = total_kg / 12
         return total_kg, total_barras
 
     @classmethod
-    def calcular_presupuesto(cls, m2: float, sistema: str, incluir_vigas: bool = True,
-                            precios_personalizados: Optional[Dict] = None) -> pd.DataFrame:
-        """Genera presupuesto detallado del proyecto"""
-
-        precios = {**cls.PRECIOS_BASE}
-        if precios_personalizados:
-            precios.update(precios_personalizados)
-
+    def calcular_obra_grisa(cls, m2: float, sistema: str, incluir_vigas: bool = True) -> pd.DataFrame:
+        """Calcula costos de obra gris"""
+        precios = cls.PRECIOS_BASE
         area_muros = cls.calcular_area_muros(m2)
         area_techo = cls.calcular_area_techo(m2)
         desperdicio = cls.FACTORES_RENDIMIENTO["desperdicio_panel"]
@@ -187,7 +242,7 @@ class BudgetCalculator:
         data = []
 
         if sistema == "Paneles Isotex":
-            # Paneles para muros
+            # Paneles
             total_muros = area_muros * (1 + desperdicio)
             data.append({
                 "Categoria": "Estructura",
@@ -199,7 +254,6 @@ class BudgetCalculator:
                 "Subtotal": total_muros * precios["Panel_Muro"]
             })
 
-            # Paneles para techo
             total_techo = area_techo * (1 + desperdicio)
             data.append({
                 "Categoria": "Estructura",
@@ -211,7 +265,7 @@ class BudgetCalculator:
                 "Subtotal": total_techo * precios["Panel_Techo"]
             })
 
-            # Hormigón para llenado
+            # Hormigón
             vol_hormigon = cls.calcular_volumen_hormigon(area_muros + area_techo)
             vol_hormigon *= cls.FACTORES_RENDIMIENTO["desperdicio_hormigon"]
             data.append({
@@ -224,20 +278,18 @@ class BudgetCalculator:
                 "Subtotal": vol_hormigon * precios["H_3000_PSI"]
             })
 
-        else:  # ICF Proform
-            # Bloques ICF
+        else:  # ICF
             data.append({
                 "Categoria": "Estructura",
                 "Material": "Bloques ICF Proform",
                 "Detalle": "Bloques de poliestireno para encofrado",
-                "Cantidad": round(area_muros * 0.85, 2),  # 0.85 bloques por m²
+                "Cantidad": round(area_muros * 0.85, 2),
                 "Unidad": "m²",
                 "P_Unitario": precios["Panel_Muro"] * 1.15,
                 "Subtotal": area_muros * 0.85 * precios["Panel_Muro"] * 1.15
             })
 
-            # Hormigón
-            vol_hormigon = cls.calcular_volumen_hormigon(area_muros, 0.15)
+            vol_hormigon = area_muros * 0.15
             data.append({
                 "Categoria": "Hormigón",
                 "Material": "Hormigón Cemex 3500 PSI",
@@ -247,6 +299,18 @@ class BudgetCalculator:
                 "P_Unitario": precios["H_3500_PSI"],
                 "Subtotal": vol_hormigon * precios["H_3500_PSI"]
             })
+
+        # Cimentación (estimada)
+        vol_cimentacion = m2 * 0.15  # 0.15 m³ por m² de construcción
+        data.append({
+            "Categoria": "Cimentación",
+            "Material": "Cimentación Armada",
+            "Detalle": "Zapatas y vigas de fundación",
+            "Cantidad": round(vol_cimentacion, 2),
+            "Unidad": "m³",
+            "P_Unitario": precios["H_3000_PSI"] * 1.2,  # Incluye acero adicional
+            "Subtotal": vol_cimentacion * precios["H_3000_PSI"] * 1.2
+        })
 
         # Vigas estructurales
         if incluir_vigas:
@@ -273,19 +337,157 @@ class BudgetCalculator:
             "Subtotal": kg_acero * precios["Acero_Varilla"]
         })
 
-        # Aditivos
+        return pd.DataFrame(data)
+
+    @classmethod
+    def calcular_obra_terminada(cls, m2: float, area_muros: float, calidad: str = "media") -> pd.DataFrame:
+        """Calcula costos de obra terminada"""
+        precios = cls.PRECIOS_BASE
+
+        # Factores según calidad
+        factores = {
+            "economica": 0.8,
+            "media": 1.0,
+            "alta": 1.5,
+            "lujo": 2.5
+        }
+        factor = factores.get(calidad, 1.0)
+
+        data = []
+
+        # Pisos
+        area_piso = m2 * 0.9  # 90% del área tiene piso (el resto son muros)
         data.append({
-            "Categoria": "Aditivos",
-            "Material": "Aditivo Impermeabilizante",
-            "Detalle": "Aditivo para concreto",
-            "Cantidad": round(m2 * 0.02, 2),
-            "Unidad": "gal",
-            "P_Unitario": precios["Aditivo_Impermeabilizante"],
-            "Subtotal": m2 * 0.02 * precios["Aditivo_Impermeabilizante"]
+            "Categoria": "Pisos",
+            "Material": "Cerámica/Porcelanato",
+            "Detalle": f"Piso calidad {calidad} (incluye pegamento y fragüe)",
+            "Cantidad": round(area_piso, 2),
+            "Unidad": "m²",
+            "P_Unitario": precios["Ceramica_m2"] * factor,
+            "Subtotal": area_piso * precios["Ceramica_m2"] * factor
         })
 
-        df = pd.DataFrame(data)
-        return df
+        # Pintura
+        galones_pintura = area_muros / 12  # 1 galón rinde ~12 m² (3 manos)
+        data.append({
+            "Categoria": "Pintura",
+            "Material": "Pintura Interior/Exterior",
+            "Detalle": "Pintura vinílica calidad premium (3 manos)",
+            "Cantidad": round(galones_pintura, 1),
+            "Unidad": "gal",
+            "P_Unitario": precios["Pintura_galon"] * factor,
+            "Subtotal": galones_pintura * precios["Pintura_galon"] * factor
+        })
+
+        # Puertas
+        num_puertas = max(4, int(m2 / 15))  # 1 puerta cada ~15 m²
+        data.append({
+            "Categoria": "Carpintería",
+            "Material": "Puertas Interiores",
+            "Detalle": f"{num_puertas} puertas de madera (incluye marcos y herrajes)",
+            "Cantidad": num_puertas,
+            "Unidad": "ud",
+            "P_Unitario": precios["Puerta_interior"],
+            "Subtotal": num_puertas * precios["Puerta_interior"]
+        })
+
+        # Ventanas
+        area_ventanas = m2 * 0.15  # 15% del área en ventanas
+        data.append({
+            "Categoria": "Carpintería",
+            "Material": "Ventanas de Aluminio",
+            "Detalle": "Ventanas con vidrio templado",
+            "Cantidad": round(area_ventanas, 1),
+            "Unidad": "m²",
+            "P_Unitario": precios["Ventana_aluminio_m2"],
+            "Subtotal": area_ventanas * precios["Ventana_aluminio_m2"]
+        })
+
+        # Baños (asumir 1 baño cada 30 m²)
+        num_banos = max(1, int(m2 / 30))
+        data.append({
+            "Categoria": "Baños",
+            "Material": "Equipamiento de Baños",
+            "Detalle": f"{num_banos} baños completos (inodoro, lavamanos, ducha, grifería)",
+            "Cantidad": num_banos,
+            "Unidad": "ud",
+            "P_Unitario": (precios["Inodoro"] + precios["Lavamanos"] + precios["Ducha"] + precios["Griferia_bano"]) * factor,
+            "Subtotal": num_banos * (precios["Inodoro"] + precios["Lavamanos"] + precios["Ducha"] + precios["Griferia_bano"]) * factor
+        })
+
+        # Cocina
+        ml_gabinete = max(3, m2 / 20)  # Metros lineales de gabinete
+        data.append({
+            "Categoria": "Cocina",
+            "Material": "Gabinetes de Cocina",
+            "Detalle": f"{ml_gabinete:.1f} metros lineales de gabinetes",
+            "Cantidad": round(ml_gabinete, 1),
+            "Unidad": "ml",
+            "P_Unitario": precios["Gabinete_cocina_ml"] * factor,
+            "Subtotal": ml_gabinete * precios["Gabinete_cocina_ml"] * factor
+        })
+
+        data.append({
+            "Categoria": "Cocina",
+            "Material": "Mesón de Granito",
+            "Detalle": "Mesón para cocina y baños",
+            "Cantidad": round(ml_gabinete * 0.6, 1),
+            "Unidad": "ml",
+            "P_Unitario": precios["Meson_granito_ml"],
+            "Subtotal": ml_gabinete * 0.6 * precios["Meson_granito_ml"]
+        })
+
+        return pd.DataFrame(data)
+
+    @classmethod
+    def calcular_presupuesto_completo(cls, m2: float, sistema: str, incluir_vigas: bool = True,
+                                      calidad_terminados: str = "media") -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Retorna presupuesto de obra gris y obra terminada"""
+        obra_gris = cls.calcular_obra_grisa(m2, sistema, incluir_vigas)
+        area_muros = cls.calcular_area_muros(m2)
+        obra_terminada = cls.calcular_obra_terminada(m2, area_muros, calidad_terminados)
+        return obra_gris, obra_terminada
+
+    @classmethod
+    def comparar_sistemas(cls, m2: float) -> Dict:
+        """Compara Isotex vs Construcción Tradicional"""
+        # Costos Isotex
+        isotex_gris, isotex_term = cls.calcular_presupuesto_completo(m2, "Paneles Isotex")
+        total_isotex = isotex_gris['Subtotal'].sum() + isotex_term['Subtotal'].sum()
+
+        # Costos Tradicional (estimado: 35-40% más caro en estructura)
+        tradicional_gris = m2 * 35000  # RD$ por m² obra gris tradicional
+        tradicional_term = m2 * 25000  # RD$ por m² obra terminada
+        total_tradicional = tradicional_gris + tradicional_term
+
+        # Tiempo de construcción
+        tiempo_isotex = m2 * 1.5  # días por m²
+        tiempo_tradicional = m2 * 2.5  # días por m²
+
+        # Ahorro de peso (Isotex pesa ~70% menos)
+        peso_tradicional = m2 * 800  # kg/m²
+        peso_isotex = m2 * 250  # kg/m²
+
+        return {
+            'isotex': {
+                'costo_total': total_isotex,
+                'costo_m2': total_isotex / m2,
+                'tiempo_dias': tiempo_isotex,
+                'peso_kg': peso_isotex
+            },
+            'tradicional': {
+                'costo_total': total_tradicional,
+                'costo_m2': total_tradicional / m2,
+                'tiempo_dias': tiempo_tradicional,
+                'peso_kg': peso_tradicional
+            },
+            'ahorro': {
+                'dinero': total_tradicional - total_isotex,
+                'porcentaje': ((total_tradicional - total_isotex) / total_tradicional) * 100,
+                'tiempo_dias': tiempo_tradicional - tiempo_isotex,
+                'peso_kg': peso_tradicional - peso_isotex
+            }
+        }
 
 
 class PDFGenerator:
@@ -297,8 +499,6 @@ class PDFGenerator:
 
     def generar_propuesta(self, cliente: str, datos_proyecto: Dict,
                          presupuesto_df: pd.DataFrame, total: float) -> bytes:
-        """Genera propuesta comercial en PDF"""
-
         self.pdf.add_page()
 
         # Encabezado
@@ -369,7 +569,6 @@ class PDFGenerator:
 
 
 def create_download_link(pdf_content: bytes, filename: str, button_text: str = "📥 Descargar PDF") -> str:
-    """Crea enlace de descarga para PDF"""
     b64 = base64.b64encode(pdf_content).decode()
     return f'''
     <a href="data:application/pdf;base64,{b64}" download="{filename}">
@@ -381,7 +580,6 @@ def create_download_link(pdf_content: bytes, filename: str, button_text: str = "
 
 
 def initialize_gemini(api_key: str) -> Optional[any]:
-    """Inicializa cliente de Gemini API"""
     if not api_key:
         return None
     try:
@@ -393,41 +591,337 @@ def initialize_gemini(api_key: str) -> Optional[any]:
 
 
 # ============================================================================
-# INTERFAZ PRINCIPAL
+# PÁGINAS DE LA APLICACIÓN
 # ============================================================================
 
-def main():
-    # Inicializar gestores
-    project_manager = ProjectManager()
-    budget_calculator = BudgetCalculator()
-    pdf_generator = PDFGenerator()
+def pagina_inicio():
+    """Página de inicio educativa y de marketing"""
 
-    # Estado de sesión
-    if 'project_id' not in st.session_state:
-        st.session_state.project_id = hashlib.md5(
-            datetime.now().isoformat().encode()
-        ).hexdigest()[:8]
-
-    # Encabezado principal
+    # Hero section
     st.markdown("""
     <div class="main-header">
-        <h1 style="margin:0;">🏗️ IsoSmart Titanium v4.0</h1>
-        <p style="margin:5px 0 0 0; opacity:0.9;">Sistema Ejecutivo de Presupuestos y Visualización BIM</p>
+        <h1 style="margin:0;">🏗️ IsoSmart Titanium</h1>
+        <p style="margin:10px 0 0 0; font-size:1.3rem;">Construcción Inteligente con Poliestireno Expandido en República Dominicana</p>
+        <p style="margin:5px 0 0 0; opacity:0.9;">Ahorra hasta 30% en costos y 40% en tiempo de construcción</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Barra lateral
-    with st.sidebar:
-        st.image("https://img.icons8.com/color/96/construction.png", width=80)
-        st.markdown("### 📋 Centro de Gestión")
+    # Beneficios principales
+    st.markdown("### 🌟 ¿Por Qué Construir con Poliestireno Expandido?")
 
-        # Información del proyecto
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.markdown("""
+        <div class="benefit-card">
+            <div style="font-size:3rem;">💰</div>
+            <h3>Menor Costo</h3>
+            <p class="big-metric" style="color:#28a745;">-30%</p>
+            <p>vs construcción tradicional</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("""
+        <div class="benefit-card">
+            <div style="font-size:3rem;">⚡</div>
+            <h3>Más Rápido</h3>
+            <p class="big-metric" style="color:#28a745;">-40%</p>
+            <p>tiempo de construcción</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown("""
+        <div class="benefit-card">
+            <div style="font-size:3rem;">🌡️</div>
+            <h3>Térmico</h3>
+            <p class="big-metric" style="color:#28a745;">-5°C</p>
+            <p>interior más fresco</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col4:
+        st.markdown("""
+        <div class="benefit-card">
+            <div style="font-size:3rem;">🔊</div>
+            <h3>Acústico</h3>
+            <p class="big-metric" style="color:#28a745;">-45dB</p>
+            <p>aislamiento sonoro</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # Información educativa
+    st.markdown("### 📚 ¿Qué es el Sistema Isotex/ICF?")
+
+    tab_info1, tab_info2, tab_info3 = st.tabs(["🏠 Sistema Isotex", "🧱 Bloques ICF", "❓ Preguntas Frecuentes"])
+
+    with tab_info1:
+        st.markdown("""
+        #### Paneles Isotex - Construcción Moderna y Eficiente
+
+        **El sistema Isotex** utiliza paneles prefabricados de poliestireno expandido (EPS) recubiertos con malla electrosoldada,
+        que se llenan con concreto para formar muros y losas estructurales.
+
+        ##### ✅ Ventajas:
+        - **Peso reducido**: 70% menos peso que la construcción tradicional
+        - **Aislamiento térmico**: Reduce el consumo de aire acondicionado
+        - **Aislamiento acústico**: Hasta 45dB de reducción de ruido
+        - **Resistencia sísmica**: Mayor flexibilidad ante movimientos
+        - **Rapidez**: Hasta 3 veces más rápido que el ladrillo
+
+        ##### 📋 Aplicaciones:
+        - Viviendas unifamiliares
+        - Edificios de apartamentos
+        - Locales comerciales
+        - Habitaciones de hotel
+        """)
+
+        st.image("https://images.unsplash.com/photo-1590059390239-03c9e7064e92?w=800",
+                 caption="Panel Isotex durante instalación", use_container_width=True)
+
+    with tab_info2:
+        st.markdown("""
+        #### Bloques ICF - Encofrado Concreto Aislante
+
+        **ICF (Insulated Concrete Forms)** son bloques huecos de poliestireno que sirven como encofrado permanente.
+        Se apilan como LEGO y se llenan de concreto, creando muros con aislamiento integrado.
+
+        ##### ✅ Ventajas:
+        - **Eficiencia energética**: Hasta 60% de ahorro en HVAC
+        - **Resistencia estructural**: Muros de concreto reforzado
+        - **Facilidad de instalación**: Sistema tipo LEGO
+        - **Durabilidad**: No se pudre, no atrae termitas
+        - **Ecológico**: Menor huella de carbono
+
+        ##### 📋 Aplicaciones:
+        - Sótanos y cimentaciones
+        - Muros de contención
+        - Edificios de varios pisos
+        - Cámaras frigoríficas
+        """)
+
+    with tab_info3:
+        st.markdown("""
+        #### Preguntas Frecuentes
+
+        **❓ ¿Es resistente a huracanes?**
+        ✅ Sí, los muros de EPS con concreto tienen excelente resistencia a vientos huracanados.
+        El sistema ha sido probado en zonas sísmicas y de huracanes.
+
+        **❓ ¿Lo comen las termitas?**
+        ✅ No, el poliestireno tratado no es alimento para termitas. Además, el concreto
+        circundante crea una barrera física.
+
+        **❓ ¿Qué duración tiene?**
+        ✅ La vida útil es superior a 50 años. El concreto protegido por el EPS dura más
+        porque no está expuesto directamente a los elementos.
+
+        **❓ ¿Necesito mano de obra especializada?**
+        ✅ Se requiere capacitación básica, pero cualquier albañil puede aprender en 1-2 días.
+        Nuestro team ofrece capacitación y supervisión.
+
+        **❓ ¿El precio incluye mano de obra?**
+        ✅ Los cálculos mostrados son de materiales. Ofrecemos cotización de mano de obra
+        por separado. Contáctanos para un presupuesto completo.
+
+        **❓ ¿Dónde puedo comprar estos materiales en RD?**
+        ✅ Trabajamos con proveedores locales. Isotex RD tiene distribución nacional.
+        También importamos ICF de proveedores certificados.
+        """)
+
+    st.divider()
+
+    # Comparativa rápida
+    st.markdown("### 📊 Comparativa: Isotex vs Construcción Tradicional")
+
+    st.markdown("""
+    <div class="info-card">
+    <strong>Para una vivienda de 120 m² en Santo Domingo:</strong>
+    </div>
+    """, unsafe_allow_html=True)
+
+    comparacion = BudgetCalculator.comparar_sistemas(120)
+
+    col_comp1, col_comp2, col_comp3 = st.columns(3)
+
+    with col_comp1:
+        st.metric(
+            label="💰 Costo Isotex",
+            value=f"RD$ {comparacion['isotex']['costo_total']:,.0f}",
+            delta=f"RD$ {comparacion['isotex']['costo_m2']:,.0f}/m²"
+        )
+
+    with col_comp2:
+        st.metric(
+            label="🏗️ Costo Tradicional",
+            value=f"RD$ {comparacion['tradicional']['costo_total']:,.0f}",
+            delta=f"RD$ {comparacion['tradicional']['costo_m2']:,.0f}/m²",
+            delta_color="inverse"
+        )
+
+    with col_comp3:
+        st.metric(
+            label="✅ Ahorro Total",
+            value=f"RD$ {comparacion['ahorro']['dinero']:,.0f}",
+            delta=f"{comparacion['ahorro']['porcentaje']:.1f}% menos",
+            delta_color="normal"
+        )
+
+    # Tabla comparativa
+    st.markdown("""
+    <table class="comparison-table" style="width:100%; margin:20px 0;">
+        <tr style="background:#1e3c72; color:white;">
+            <th>Característica</th>
+            <th>Isotex/ICF</th>
+            <th>Tradicional</th>
+        </tr>
+        <tr>
+            <td><strong>Costo por m²</strong></td>
+            <td class="highlight-green">RD$ {isotex_m2:,.0f}</td>
+            <td>RD$ {trad_m2:,.0f}</td>
+        </tr>
+        <tr>
+            <td><strong>Tiempo de construcción</strong></td>
+            <td class="highlight-green">{isotex_t} días</td>
+            <td>{trad_t} días</td>
+        </tr>
+        <tr>
+            <td><strong>Peso de la estructura</strong></td>
+            <td class="highlight-green">{isotex_p} kg</td>
+            <td>{trad_p} kg</td>
+        </tr>
+        <tr>
+            <td><strong>Aislamiento térmico</strong></td>
+            <td class="highlight-green">Excelente</td>
+            <td>Regular</td>
+        </tr>
+        <tr>
+            <td><strong>Aislamiento acústico</strong></td>
+            <td class="highlight-green">Hasta 45dB</td>
+            <td>~20dB</td>
+        </tr>
+        <tr>
+            <td><strong>Resistencia sísmica</strong></td>
+            <td class="highlight-green">Alta (flexible)</td>
+            <td>Media (rígido)</td>
+        </tr>
+    </table>
+    """.format(
+        isotex_m2=comparacion['isotex']['costo_m2'],
+        trad_m2=comparacion['tradicional']['costo_m2'],
+        isotex_t=int(comparacion['isotex']['tiempo_dias']),
+        trad_t=int(comparacion['tradicional']['tiempo_dias']),
+        isotex_p=int(comparacion['isotex']['peso_kg']),
+        trad_p=int(comparacion['tradicional']['peso_kg'])
+    ), unsafe_allow_html=True)
+
+
+def pagina_team():
+    """Página de presentación del team constructor"""
+
+    st.markdown("""
+    <div class="main-header">
+        <h1 style="margin:0;">👷 Nuestro Team de Construcción</h1>
+        <p style="margin:10px 0 0 0; font-size:1.2rem;">Expertos en Construcción con Poliestireno Expandido en República Dominicana</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Información del team
+    col_team1, col_team2 = st.columns([2, 1])
+
+    with col_team1:
+        st.markdown("""
+        <div class="team-card">
+        <h3>🏆 Experiencia y Profesionalismo</h3>
+        <p>Somos un equipo de constructores dominicanos con experiencia en el sistema de
+        poliestireno expandido. Entendemos las necesidades específicas de construcción
+        en nuestro país y ofrecemos soluciones adaptadas al clima y condiciones de RD.</p>
+
+        <h4>✅ Nuestros Servicios:</h4>
+        <ul>
+            <li>Asesoría técnica personalizada</li>
+            <li>Cálculo estructural y de materiales</li>
+            <li>Supervisión de obra</li>
+            <li>Capacitación a albañiles y maestros</li>
+            <li>Ejecución completa de proyectos</li>
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_team2:
+        st.markdown("""
+        <div class="team-card" style="text-align:center;">
+            <div style="font-size:4rem;">📞</div>
+            <h4>Contáctanos</h4>
+            <p><strong>Teléfono:</strong><br>809-XXX-XXXX</p>
+            <p><strong>Email:</strong><br>info@tuempresa.com</p>
+            <p><strong>Ubicación:</strong><br>Santo Domingo, RD</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # Galería de proyectos
+    st.markdown("### 🏠 Proyectos Realizados")
+
+    col_gal1, col_gal2, col_gal3 = st.columns(3)
+
+    with col_gal1:
+        st.image("https://images.unsplash.com/photo-1590059390239-03c9e7064e92?w=400",
+                 caption="Vivienda Unifamiliar - 150m²", use_container_width=True)
+
+    with col_gal2:
+        st.image("https://images.unsplash.com/photo-1582268611958-ebfd161ef9cf?w=400",
+                 caption="Edificio de Apartamentos", use_container_width=True)
+
+    with col_gal3:
+        st.image("https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=400",
+                 caption="Local Comercial", use_container_width=True)
+
+    st.divider()
+
+    # Testimonios (placeholder)
+    st.markdown("### 💬 Lo Que Dicen Nuestros Clientes")
+
+    st.markdown("""
+    <div class="info-card">
+        <em>"Construí mi vivienda con el sistema Isotex y estoy muy satisfecho. La casa quedó
+        más fresca y el ahorro en el aire acondicionado es notable. El team fue muy profesional."</em>
+        <br><strong>- Juan P., Santo Domingo</strong>
+    </div>
+
+    <div class="info-card">
+        <em>"Como ingeniero, estaba escéptico al principio. Pero después de ver los resultados
+        y los cálculos estructurales, quedé convencido. Es un sistema válido y eficiente."</em>
+        <br><strong>- Arq. María G., Santiago</strong>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def pagina_calculadora():
+    """Página principal de cálculo de presupuestos"""
+
+    st.markdown("""
+    <div class="main-header">
+        <h1 style="margin:0;">🧮 Calculadora de Presupuesto</h1>
+        <p style="margin:10px 0 0 0;">Obra Gris + Obra Terminada con Precios de República Dominicana</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Barra lateral de configuración
+    with st.sidebar:
+        st.markdown("### 📋 Datos del Proyecto")
+
         cliente = st.text_input("👤 Nombre del Cliente", "Proyecto Residencial")
         col1, col2 = st.columns(2)
         with col1:
             m2_in = st.number_input("📐 Área (m²)", value=120.0, min_value=10.0, max_value=10000.0)
         with col2:
-            habitaciones = st.number_input("🛏️ Habitaciones", value=3, min_value=1, max_value=10)
+            calidad = st.selectbox("🎨 Calidad Terminados",
+                                   ["económica", "media", "alta", "lujo"])
 
         sistema_sel = st.selectbox(
             "🏗️ Sistema Constructivo",
@@ -435,550 +929,293 @@ def main():
             help="Isotex: Paneles de EPS con malla. ICF: Encofrado aislante permanente"
         )
 
-        st.markdown("##### ⚙️ Opciones")
         incluir_vigas = st.checkbox("Incluir Vigas H", value=True)
-        ver_elec = st.checkbox("Ver Capa Eléctrica", value=True)
-        ver_san = st.checkbox("Ver Capa Sanitaria", value=True)
 
         st.divider()
 
-        # Configuración de IA
-        st.markdown("##### 🤖 Inteligencia Artificial")
-        api_key = st.text_input("Gemini API Key", type="password",
-                               help="Obtén tu key en: makersuite.google.com")
+        # IA
+        st.markdown("### 🤖 Inteligencia Artificial")
+        api_key = st.text_input("Gemini API Key", type="password")
 
         st.divider()
 
-        # Gestión de proyectos
-        st.markdown("##### 📁 Gestión de Proyectos")
+        # Gestión
+        st.markdown("### 📁 Gestión")
+        project_manager = ProjectManager()
+
         if st.button("💾 Guardar Proyecto"):
             project_data = {
                 'cliente': cliente,
                 'area': m2_in,
-                'habitaciones': habitaciones,
+                'calidad': calidad,
                 'sistema': sistema_sel,
                 'opcion_vigas': incluir_vigas
             }
-            project_manager.save_project(st.session_state.project_id, project_data)
+            project_id = hashlib.md5(f"{cliente}{datetime.now().isoformat()}".encode()).hexdigest()[:8]
+            project_manager.save_project(project_id, project_data)
             st.success("✅ Proyecto guardado")
 
-        if st.button("📂 Cargar Proyecto Guardado"):
-            projects = project_manager.list_projects()
-            if projects:
-                project_options = {f"{p['cliente']} - {p.get('area', 0)}m²": p for p in projects}
-                selected = st.selectbox("Selecciona proyecto", list(project_options.keys()))
-                if selected:
-                    proj = project_options[selected]
-                    st.session_state.loaded_project = proj
+    # Calcular presupuestos
+    budget_calc = BudgetCalculator()
+    obra_gris_df, obra_terminada_df = budget_calc.calcular_presupuesto_completo(
+        m2=m2_in,
+        sistema=sistema_sel,
+        incluir_vigas=incluir_vigas,
+        calidad_terminados=calidad
+    )
 
-        # Cargar proyecto si existe
-        if hasattr(st.session_state, 'loaded_project') and st.session_state.loaded_project:
-            proj = st.session_state.loaded_project
-            cliente = proj.get('cliente', cliente)
-            m2_in = proj.get('area', m2_in)
-            sistema_sel = proj.get('sistema', sistema_sel)
-            incluir_vigas = proj.get('opcion_vigas', incluir_vigas)
-            del st.session_state.loaded_project
+    total_obra_gris = obra_gris_df['Subtotal'].sum()
+    total_obra_terminada = obra_terminada_df['Subtotal'].sum()
+    total_general = total_obra_gris + total_obra_terminada
 
-        st.divider()
+    # Métricas
+    st.markdown("### 💰 Resumen de Costos")
 
-        # Información
-        with st.expander("ℹ️ Acerca de"):
-            st.markdown("""
-            **IsoSmart Titanium v4.0**
+    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
 
-            Sistema profesional para:
-            - Cálculo de presupuestos
-            - Visualización BIM 3D
-            - Asistencia con IA
-
-            [GitHub Repository](https://github.com/jukaben32/isosmart-titanium)
-            """)
-
-    # Pestañas principales
-    tab_bim, tab_ia, tab_presu, tab_config = st.tabs([
-        "🏠 VISOR BIM 3D",
-        "🤖 ASISTENTE IA",
-        "💰 PRESUPUESTO",
-        "⚙️ CONFIGURACIÓN"
-    ])
-
-    # ==========================================================================
-    # PESTAÑA 1: VISOR BIM 3D
-    # ==========================================================================
-    with tab_bim:
-        st.markdown("### 🏗️ Visualizador BIM Interactivo")
-
-        # Calcular dimensiones
-        ancho = m2_in ** 0.5
-        alto = 3.0  # Altura estándar
-
-        # Crear figura 3D
-        fig = make_subplots(
-            rows=1, cols=1,
-            specs=[[{'type': 'scatter3d'}]]
+    with col_m1:
+        st.metric(
+            label="Obra Gris",
+            value=f"RD$ {total_obra_gris:,.2f}",
+            delta=f"RD$ {total_obra_gris/m2_in:,.0f}/m²"
         )
 
-        # Muros estructurales (transparentes)
-        x_coords = [0, ancho, ancho, 0, 0, ancho, ancho, 0]
-        y_coords = [0, 0, ancho, ancho, 0, 0, ancho, ancho]
-        z_coords = [0, 0, 0, 0, alto, alto, alto, alto]
-
-        fig.add_trace(go.Mesh3d(
-            x=x_coords, y=y_coords, z=z_coords,
-            i=[7,0,0,0,4,4,6,6,4,0,3,2],
-            j=[3,4,1,2,5,6,5,2,0,1,6,3],
-            k=[0,7,2,3,6,7,1,1,5,5,7,6],
-            color='rgba(100,150,200,0.3)',
-            opacity=0.5,
-            name="Muros Estructurales",
-            showscale=False
-        ))
-
-        # Techo
-        fig.add_trace(go.Mesh3d(
-            x=[0, ancho, ancho, 0],
-            y=[0, 0, ancho, ancho],
-            z=[alto, alto, alto, alto],
-            color='rgba(150,100,100,0.6)',
-            name="Losa de Techo",
-            showscale=False
-        ))
-
-        # Capa eléctrica
-        if ver_elec:
-            # Trayecto eléctrico en paredes
-            elec_path_x = [0, ancho/2, ancho, ancho]
-            elec_path_y = [alto-0.3, alto-0.3, alto-0.3, ancho/2]
-            elec_path_z = [0, 0, 0, 0]
-
-            fig.add_trace(go.Scatter3d(
-                x=elec_path_x, y=elec_path_y, z=elec_path_z,
-                mode='lines+markers',
-                line=dict(color='yellow', width=8),
-                marker=dict(size=4, color='yellow'),
-                name="⚡ Instalación Eléctrica"
-            ))
-
-        # Capa sanitaria
-        if ver_san:
-            # Tubería sanitaria
-            san_path_x = [ancho/2, ancho/2, ancho/4]
-            san_path_y = [0, ancho/2, ancho/4]
-            san_path_z = [0.1, 0.1, 0.1]
-
-            fig.add_trace(go.Scatter3d(
-                x=san_path_x, y=san_path_y, z=san_path_z,
-                mode='lines+markers',
-                line=dict(color='blue', width=10),
-                marker=dict(size=5, color='blue'),
-                name="💧 Instalación Sanitaria"
-            ))
-
-        # Pisos
-        fig.add_trace(go.Mesh3d(
-            x=[0, ancho, ancho, 0],
-            y=[0, 0, ancho, ancho],
-            z=[0, 0, 0, 0],
-            color='rgba(180,180,180,0.8)',
-            name="Planta Baja",
-            showscale=False
-        ))
-
-        # Actualizar layout
-        fig.update_layout(
-            scene=dict(
-                xaxis_title='Largo (m)',
-                yaxis_title='Ancho (m)',
-                zaxis_title='Altura (m)',
-                aspectmode='data',
-                bgcolor='rgba(240,240,240,0.5)'
-            ),
-            margin=dict(l=0, r=0, b=0, t=50),
-            height=600
+    with col_m2:
+        st.metric(
+            label="Obra Terminada",
+            value=f"RD$ {total_obra_terminada:,.2f}",
+            delta=f"RD$ {total_obra_terminada/m2_in:,.0f}/m²"
         )
 
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Controles adicionales
-        col_viz1, col_viz2, col_viz3 = st.columns(3)
-        with col_viz1:
-            if st.button("🔄 Vista Isométrica"):
-                st.rerun()
-        with col_viz2:
-            if st.button("📐 Mostrar Dimensiones"):
-                st.info(f"Dimensiones: {ancho:.2f}m x {ancho:.2f}m x {alto}m")
-        with col_viz3:
-            if st.button("📸 Capturar Vista"):
-                st.success("✅ Vista capturada (funcionalidad en desarrollo)")
-
-    # ==========================================================================
-    # PESTAÑA 2: ASISTENTE IA
-    # ==========================================================================
-    with tab_ia:
-        st.markdown("### 🤖 Asistente Inteligente de Construcción")
-
-        if not api_key:
-            st.warning("⚠️ Ingresa tu API Key de Gemini en la barra lateral para usar el asistente IA")
-
-            # Mostrar información de ejemplo
-            st.info("""
-            **El asistente IA puede ayudarte con:**
-            - 📐 Cálculos estructurales y de materiales
-            - 🏗️ Recomendaciones sobre sistemas constructivos
-            - 📋 Normativas y mejores prácticas
-            - 💡 Optimización de costos y diseños
-
-            Para obtener una API Key gratuita, visita:
-            [Google AI Studio](https://makersuite.google.com/app/apikey)
-            """)
-        else:
-            # Inicializar modelo
-            model = initialize_gemini(api_key)
-
-            if model:
-                # Contexto del proyecto
-                contexto = f"""
-                Eres un experto en construcción con sistemas de poliestireno expandido (EPS).
-                El proyecto actual es:
-                - Cliente: {cliente}
-                - Área: {m2_in} m²
-                - Sistema: {sistema_sel}
-                - Habitaciones: {habitaciones}
-
-                Responde de forma técnica pero accesible, en español.
-                """
-
-                # Chat interface
-                if 'chat_history' not in st.session_state:
-                    st.session_state.chat_history = []
-
-                # Mostrar historial
-                for msg in st.session_state.chat_history:
-                    with st.chat_message(msg['role']):
-                        st.markdown(msg['content'])
-
-                # Input del usuario
-                if prompt := st.chat_input("Haz una pregunta sobre tu proyecto..."):
-                    st.session_state.chat_history.append({'role': 'user', 'content': prompt})
-
-                    with st.chat_message('user'):
-                        st.markdown(prompt)
-
-                    with st.chat_message('assistant'):
-                        with st.spinner('🤔 Analizando consulta...'):
-                            try:
-                                full_prompt = f"{contexto}\n\nPregunta del usuario: {prompt}"
-                                response = model.generate_content(full_prompt)
-                                respuesta = response.text
-                                st.markdown(respuesta)
-                                st.session_state.chat_history.append({
-                                    'role': 'assistant',
-                                    'content': respuesta
-                                })
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-
-                # Botones de acción rápida
-                st.divider()
-                st.markdown("##### 💡 Consultas rápidas:")
-
-                col_q1, col_q2, col_q3 = st.columns(3)
-                with col_q1:
-                    if st.button("📊 Calcular materiales exactos"):
-                        st.session_state.chat_history.append({
-                            'role': 'user',
-                            'content': 'Calcula la lista exacta de materiales necesarios para este proyecto'
-                        })
-                        st.rerun()
-                with col_q2:
-                    if st.button("💰 Optimizar costos"):
-                        st.session_state.chat_history.append({
-                            'role': 'user',
-                            'content': '¿Cómo puedo optimizar los costos de este proyecto sin comprometer la calidad?'
-                        })
-                        st.rerun()
-                with col_q3:
-                    if st.button("🏗️ Comparar sistemas"):
-                        st.session_state.chat_history.append({
-                            'role': 'user',
-                            'content': 'Compara las ventajas y desventajas de Isotex vs ICF para este proyecto'
-                        })
-                        st.rerun()
-
-    # ==========================================================================
-    # PESTAÑA 3: PRESUPUESTO
-    # ==========================================================================
-    with tab_presu:
-        st.markdown(f"### 💰 Presupuesto Detallado - {cliente}")
-
-        # Calcular presupuesto
-        df_presupuesto = budget_calculator.calcular_presupuesto(
-            m2=m2_in,
-            sistema=sistema_sel,
-            incluir_vigas=incluir_vigas
+    with col_m3:
+        st.metric(
+            label="Total General",
+            value=f"RD$ {total_general:,.2f}",
+            delta=f"RD$ {total_general/m2_in:,.0f}/m²"
         )
 
-        # Métricas clave
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    with col_m4:
+        comparacion = budget_calc.comparar_sistemas(m2_in)
+        ahorro_pct = comparacion['ahorro']['porcentaje']
+        st.metric(
+            label="Ahorro vs Tradicional",
+            value=f"{ahorro_pct:.1f}%",
+            delta=f"RD$ {comparacion['ahorro']['dinero']:,.0f}"
+        )
 
-        total_obra = df_presupuesto['Subtotal'].sum()
-        costo_m2 = total_obra / m2_in if m2_in > 0 else 0
+    st.divider()
 
-        with col_m1:
-            st.metric(
-                label="Inversión Total",
-                value=f"RD$ {total_obra:,.2f}",
-                delta=f"RD$ {costo_m2:,.0f}/m²"
-            )
-        with col_m2:
-            subtotal_materiales = df_presupuesto[df_presupuesto['Categoria'] == 'Estructura']['Subtotal'].sum()
-            st.metric(
-                label="Estructura",
-                value=f"RD$ {subtotal_materiales:,.2f}",
-                delta=f"{(subtotal_materiales/total_obra*100):.1f}%"
-            )
-        with col_m3:
-            subtotal_hormigon = df_presupuesto[df_presupuesto['Categoria'] == 'Hormigón']['Subtotal'].sum()
-            st.metric(
-                label="Hormigón",
-                value=f"RD$ {subtotal_hormigon:,.2f}",
-                delta=f"{(subtotal_hormigon/total_obra*100):.1f}%"
-            )
-        with col_m4:
-            subtotal_acero = df_presupuesto[df_presupuesto['Categoria'] == 'Acero']['Subtotal'].sum()
-            st.metric(
-                label="Acero",
-                value=f"RD$ {subtotal_acero:,.2f}",
-                delta=f"{(subtotal_acero/total_obra*100):.1f}%"
-            )
+    # Tablas de presupuesto
+    tab_gris, tab_term, tab_comp = st.tabs(["🏗️ Obra Gris", "🎨 Obra Terminada", "📊 Comparativa"])
 
-        st.divider()
+    with tab_gris:
+        st.markdown("##### Materiales de Obra Gris")
 
-        # Tabla de presupuesto
-        st.markdown("##### 📋 Desglose de Materiales")
-
-        # Formatear tabla para visualización
-        df_display = df_presupuesto.copy()
+        df_display = obra_gris_df.copy()
         df_display['P_Unitario'] = df_display['P_Unitario'].apply(lambda x: f"RD$ {x:,.2f}")
         df_display['Subtotal'] = df_display['Subtotal'].apply(lambda x: f"RD$ {x:,.2f}")
 
-        st.dataframe(
-            df_display[['Categoria', 'Material', 'Detalle', 'Cantidad', 'Unidad', 'P_Unitario', 'Subtotal']],
-            use_container_width=True,
-            hide_index=True
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+        # Gráfico
+        fig_pie = go.Figure(data=[go.Pie(
+            labels=obra_gris_df.groupby('Categoria')['Subtotal'].sum().index,
+            values=obra_gris_df.groupby('Categoria')['Subtotal'].sum().values,
+            hole=0.4
+        )])
+        fig_pie.update_layout(title='Distribución Obra Gris', height=400)
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with tab_term:
+        st.markdown("##### Materiales de Obra Terminada")
+
+        df_display = obra_terminada_df.copy()
+        df_display['P_Unitario'] = df_display['P_Unitario'].apply(lambda x: f"RD$ {x:,.2f}")
+        df_display['Subtotal'] = df_display['Subtotal'].apply(lambda x: f"RD$ {x:,.2f}")
+
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+    with tab_comp:
+        st.markdown("##### Comparativa Isotex vs Tradicional")
+
+        comparacion = budget_calc.comparar_sistemas(m2_in)
+
+        col_c1, col_c2 = st.columns(2)
+
+        with col_c1:
+            st.markdown(f"""
+            #### Isotex/ICF
+            - **Costo Total:** RD$ {comparacion['isotex']['costo_total']:,.0f}
+            - **Costo/m²:** RD$ {comparacion['isotex']['costo_m2']:,.0f}
+            - **Tiempo:** {comparacion['isotex']['tiempo_dias']:.0f} días
+            - **Peso:** {comparacion['isotex']['peso_kg']:,.0f} kg
+            """)
+
+        with col_c2:
+            st.markdown(f"""
+            #### Tradicional
+            - **Costo Total:** RD$ {comparacion['tradicional']['costo_total']:,.0f}
+            - **Costo/m²:** RD$ {comparacion['tradicional']['costo_m2']:,.0f}
+            - **Tiempo:** {comparacion['tradicional']['tiempo_dias']:.0f} días
+            - **Peso:** {comparacion['tradicional']['peso_kg']:,.0f} kg
+            """)
+
+    # Exportación
+    st.divider()
+    st.markdown("##### 📥 Exportar Presupuesto")
+
+    col_exp1, col_exp2 = st.columns(2)
+
+    with col_exp1:
+        if st.button("📄 Generar PDF Completo", use_container_width=True):
+            pdf_gen = PDFGenerator()
+            datos = {'area': m2_in, 'sistema': sistema_sel, 'cliente': cliente}
+            pdf_bytes = pdf_gen.generar_propuesta(cliente, datos, obra_gris_df, total_general)
+            st.markdown(
+                create_download_link(pdf_bytes, f"Presupuesto_{cliente.replace(' ', '_')}.pdf"),
+                unsafe_allow_html=True
+            )
+
+    with col_exp2:
+        if st.button("📊 Exportar Excel", use_container_width=True):
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                obra_gris_df.to_excel(writer, sheet_name='Obra Gris', index=False)
+                obra_terminada_df.to_excel(writer, sheet_name='Obra Terminada', index=False)
+            output.seek(0)
+            b64 = base64.b64encode(output.getvalue()).decode()
+            st.markdown(
+                f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" '
+                f'download="Presupuesto_Completo_{cliente.replace(" ", "_")}.xlsx">'
+                f'<button style="width:100%; border-radius:10px; background-color:#27ae60; color:white; '
+                f'padding:15px; border:none; cursor:pointer; font-size:16px; font-weight:bold;">'
+                f'📊 Descargar Excel</button></a>',
+                unsafe_allow_html=True
+            )
+
+
+def pagina_contacto():
+    """Formulario de contacto y captura de leads"""
+
+    st.markdown("""
+    <div class="main-header">
+        <h1 style="margin:0;">📞 Contáctanos</h1>
+        <p style="margin:10px 0 0 0;">Solicita tu cotización o asesoría gratuita</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    project_manager = ProjectManager()
+
+    col_form1, col_form2 = st.columns([2, 1])
+
+    with col_form1:
+        with st.form("contacto_form", clear_on_submit=False):
+            st.markdown("### 📝 Formulario de Contacto")
+
+            nombre = st.text_input("Nombre Completo *")
+            email = st.text_input("Email *")
+            telefono = st.text_input("Teléfono")
+            ubicacion = st.selectbox(
+                "Ubicación del Proyecto",
+                ["Santo Domingo", "Santiago", "Punta Cana", "La Romana",
+                 "Puerto Plata", "San Pedro", "La Vega", "Otro"]
+            )
+            tipo_proyecto = st.selectbox(
+                "Tipo de Proyecto",
+                ["Vivienda Unifamiliar", "Apartamento", "Local Comercial",
+                 "Edificio", "Remodelación", "Otro"]
+            )
+            area_estimada = st.number_input("Área Estimada (m²)", min_value=0, max_value=10000, step=10)
+            mensaje = st.text_area("Mensaje o Detalles Adicionales")
+
+            submit = st.form_submit_button("🚀 Enviar Solicitud", use_container_width=True)
+
+            if submit:
+                if nombre and email:
+                    lead_data = {
+                        'nombre': nombre,
+                        'email': email,
+                        'telefono': telefono,
+                        'ubicacion': ubicacion,
+                        'tipo_proyecto': tipo_proyecto,
+                        'area_estimada': area_estimada,
+                        'mensaje': mensaje
+                    }
+                    project_manager.save_lead(lead_data)
+                    st.success("✅ ¡Gracias por tu mensaje! Nos pondremos en contacto pronto.")
+                else:
+                    st.error("❌ Por favor completa nombre y email")
+
+    with col_form2:
+        st.markdown("""
+        ### 📍 Información de Contacto
+
+        **📞 Teléfono:**
+        809-XXX-XXXX
+
+        **📧 Email:**
+        info@tuempresa.com
+
+        **📌 Ubicación:**
+        Santo Domingo, República Dominicana
+
+        **⏰ Horario:**
+        Lunes - Viernes: 8:00 AM - 6:00 PM
+        Sábados: 8:00 AM - 12:00 PM
+
+        ---
+
+        ### 🔗 Redes Sociales
+
+        - [Facebook](#)
+        - [Instagram](#)
+        - [YouTube](#)
+        - [LinkedIn](#)
+        """)
+
+    st.divider()
+
+    # Mapa (placeholder)
+    st.markdown("### 🗺️ Nuestra Ubicación")
+    st.map([{"lat": 18.4861, "lon": -69.9312}])  # Santo Domingo
+
+
+# ============================================================================
+# NAVEGACIÓN PRINCIPAL
+# ============================================================================
+
+def main():
+    # Menú de navegación
+    with st.sidebar:
+        st.image("https://img.icons8.com/color/96/construction.png", width=80)
+        st.markdown("### 🏗️ IsoSmart Titanium")
+
+        menu = st.radio(
+            "Navegación",
+            ["🏠 Inicio", "👷 Nuestro Team", "🧮 Calculadora", "📞 Contacto"],
+            label_visibility="collapsed"
         )
 
-        # Gráficos
-        st.divider()
-        st.markdown("##### 📊 Análisis de Costos")
-
-        col_g1, col_g2 = st.columns(2)
-
-        with col_g1:
-            # Gráfico de dona por categoría
-            df_pie = df_presupuesto.groupby('Categoria')['Subtotal'].sum().reset_index()
-
-            fig_pie = go.Figure(data=[go.Pie(
-                labels=df_pie['Categoria'],
-                values=df_pie['Subtotal'],
-                hole=0.4,
-                marker=dict(colors=['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6'])
-            )])
-            fig_pie.update_layout(
-                title='Distribución de Costos por Categoría',
-                height=400,
-                showlegend=True
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
-
-        with col_g2:
-            # Gráfico de barras
-            fig_bar = go.Figure(data=[go.Bar(
-                x=df_presupuesto['Material'],
-                y=df_presupuesto['Subtotal'],
-                marker=dict(color='#3498db'),
-                text=df_presupuesto['Subtotal'].apply(lambda x: f"RD$ {x:,.0f}"),
-                textposition='auto'
-            )])
-            fig_bar.update_layout(
-                title='Costos por Material',
-                xaxis_title='Material',
-                yaxis_title='Costo (RD$)',
-                height=400,
-                xaxis={'tickangle': -45}
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
-
-        # Acciones de exportación
-        st.divider()
-        st.markdown("##### 📥 Exportar Presupuesto")
-
-        col_exp1, col_exp2, col_exp3 = st.columns(3)
-
-        with col_exp1:
-            # Generar PDF
-            if st.button("📄 Generar PDF", use_container_width=True):
-                datos_proyecto = {
-                    'area': m2_in,
-                    'sistema': sistema_sel,
-                    'cliente': cliente
-                }
-                pdf_bytes = pdf_generator.generar_propuesta(
-                    cliente=cliente,
-                    datos_proyecto=datos_proyecto,
-                    presupuesto_df=df_presupuesto,
-                    total=total_obra
-                )
-                st.markdown(
-                    create_download_link(pdf_bytes, f"Cotizacion_{cliente.replace(' ', '_')}.pdf"),
-                    unsafe_allow_html=True
-                )
-
-        with col_exp2:
-            # Generar Excel
-            if st.button("📊 Exportar Excel", use_container_width=True):
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df_presupuesto.to_excel(writer, sheet_name='Presupuesto', index=False)
-
-                    # Formatear
-                    workbook = writer.book
-                    worksheet = writer.sheets['Presupuesto']
-
-                    # Formato de moneda
-                    money_format = workbook.add_format({'num_format': 'RD$ #,##0.00'})
-                    worksheet.set_column('F:G', 15, money_format)
-
-                output.seek(0)
-                b64 = base64.b64encode(output.getvalue()).decode()
-                st.markdown(
-                    f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" '
-                    f'download="Presupuesto_{cliente.replace(" ", "_")}.xlsx">'
-                    f'<button style="width:100%; border-radius:10px; background-color:#27ae60; color:white; '
-                    f'padding:15px; border:none; cursor:pointer; font-size:16px; font-weight:bold;">'
-                    f'📊 Descargar Excel</button></a>',
-                    unsafe_allow_html=True
-                )
-
-        with col_exp3:
-            # Imprimir
-            if st.button("🖨️ Imprimir", use_container_width=True):
-                st.info("Funcionalidad de impresión - Usa Ctrl+P de tu navegador")
-
-    # ==========================================================================
-    # PESTAÑA 4: CONFIGURACIÓN
-    # ==========================================================================
-    with tab_config:
-        st.markdown("### ⚙️ Configuración del Sistema")
-
-        # Configuración de precios
-        st.markdown("##### 💲 Precios Unitarios")
-        st.info("Modifica los precios según tu proveedor local")
-
-        col_conf1, col_conf2 = st.columns(2)
-
-        with col_conf1:
-            nuevo_panel_muro = st.number_input(
-                "Panel Muro (RD$/m²)",
-                value=BudgetCalculator.PRECIOS_BASE["Panel_Muro"],
-                step=50.0
-            )
-            nuevo_panel_techo = st.number_input(
-                "Panel Techo (RD$/m²)",
-                value=BudgetCalculator.PRECIOS_BASE["Panel_Techo"],
-                step=50.0
-            )
-            nuevo_h3000 = st.number_input(
-                "Hormigón 3000 PSI (RD$/m³)",
-                value=BudgetCalculator.PRECIOS_BASE["H_3000_PSI"],
-                step=100.0
-            )
-
-        with col_conf2:
-            nuevo_h3500 = st.number_input(
-                "Hormigón 3500 PSI (RD$/m³)",
-                value=BudgetCalculator.PRECIOS_BASE["H_3500_PSI"],
-                step=100.0
-            )
-            nueva_viga = st.number_input(
-                "Viga H (RD$/kg)",
-                value=BudgetCalculator.PRECIOS_BASE["Viga_H_kg"],
-                step=5.0
-            )
-            nuevo_acero = st.number_input(
-                "Acero Varilla (RD$/kg)",
-                value=BudgetCalculator.PRECIOS_BASE["Acero_Varilla"],
-                step=5.0
-            )
-
-        # Guardar configuración
-        if st.button("💾 Guardar Precios Personalizados"):
-            st.session_state.precios_personalizados = {
-                "Panel_Muro": nuevo_panel_muro,
-                "Panel_Techo": nuevo_panel_techo,
-                "H_3000_PSI": nuevo_h3000,
-                "H_3500_PSI": nuevo_h3500,
-                "Viga_H_kg": nueva_viga,
-                "Acero_Varilla": nuevo_acero
-            }
-            st.success("✅ Precios actualizados para esta sesión")
-
         st.divider()
 
-        # Información del sistema
-        st.markdown("##### ℹ️ Información del Sistema")
+        # Información rápida
+        st.markdown("""
+        <div style="background:#f0f2f6; padding:15px; border-radius:10px;">
+            <strong>💡 ¿Sabías qué?</strong><br>
+            El poliestireno expandido puede reducir hasta 30% los costos de construcción
+            comparado con el método tradicional.
+        </div>
+        """, unsafe_allow_html=True)
 
-        col_info1, col_info2 = st.columns(2)
-
-        with col_info1:
-            st.markdown("""
-            **Factores de Cálculo**
-            - Factor muro: 2.2 × área construida
-            - Factor techo: 1.10 × área construida
-            - Espesor hormigón: 12cm (Isotex) / 15cm (ICF)
-            - Desperdicio panel: 5%
-            - Desperdicio hormigón: 8%
-            """)
-
-        with col_info2:
-            st.markdown("""
-            **Rendimientos**
-            - Acero de refuerzo: 8.5 kg/m²
-            - Aditivo impermeabilizante: 0.02 gal/m²
-            - Vigas estructurales: 25 kg/m²
-            """)
-
-        st.divider()
-
-        # Acerca de
-        st.markdown("##### 📖 Acerca de IsoSmart Titanium")
-
-        with st.expander("Ver información de la aplicación"):
-            st.markdown("""
-            **Versión:** 4.0.0
-
-            **Características:**
-            - ✅ Cálculo automático de presupuestos
-            - ✅ Visualización BIM 3D interactiva
-            - ✅ Asistente IA con Gemini
-            - ✅ Generación de PDF y Excel
-            - ✅ Gestión de proyectos
-            - ✅ Precios personalizables
-
-            **Tecnologías:**
-            - Streamlit (Frontend)
-            - Plotly (Visualización 3D)
-            - Google Gemini (IA)
-            - FPDF / ReportLab (Documentos)
-            - Pandas (Datos)
-
-            **Licencia:** MIT
-
-            **Autor:** jukaben32
-
-            [🔗 Repositorio GitHub](https://github.com/jukaben32/isosmart-titanium)
-            """)
+    # Router de páginas
+    if menu == "🏠 Inicio":
+        pagina_inicio()
+    elif menu == "👷 Nuestro Team":
+        pagina_team()
+    elif menu == "🧮 Calculadora":
+        pagina_calculadora()
+    elif menu == "📞 Contacto":
+        pagina_contacto()
 
 
 # ============================================================================
