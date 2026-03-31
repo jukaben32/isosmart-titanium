@@ -24,6 +24,24 @@ from typing import Dict, List, Optional, Tuple
 import hashlib
 import time
 
+from utils.pricebook import Pricebook
+from utils.storage import list_dict_values, read_json, write_json_atomic
+from utils.gemini_plan import analyze_plan_image_with_gemini
+from utils.plan_geometry import (
+    polygon_area_perimeter,
+    polygon_from_canvas,
+    scale_from_canvas_line,
+    extract_line_segments,
+    extract_points,
+)
+from utils.pdf_utils import pdf_first_page_to_image
+from utils.catalog import Catalog
+
+try:
+    from streamlit_drawable_canvas import st_canvas
+except Exception:
+    st_canvas = None
+
 # ============================================================================
 # CONFIGURACIÓN DE PÁGINA Y ESTILOS
 # ============================================================================
@@ -111,29 +129,18 @@ st.markdown("""
 class ProjectManager:
     """Gestor de proyectos con persistencia local"""
 
-    def __init__(self, storage_file: str = "projects_db.json"):
-        self.storage_file = storage_file
+    def __init__(self, base_dir: str = "data"):
+        self.base_dir = base_dir
+        self.storage_file = os.path.join(self.base_dir, "projects_db.json")
+        self.leads_file = os.path.join(self.base_dir, "leads_db.json")
         self.projects = self._load_projects()
         self.leads = self._load_leads()
 
     def _load_projects(self) -> Dict:
-        if os.path.exists(self.storage_file):
-            try:
-                with open(self.storage_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
+        return read_json(self.storage_file, default={})
 
     def _load_leads(self) -> List:
-        leads_file = "leads_db.json"
-        if os.path.exists(leads_file):
-            try:
-                with open(leads_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                return []
-        return []
+        return read_json(self.leads_file, default=[])
 
     def save_lead(self, lead_data: Dict):
         """Guarda un lead interesado"""
@@ -142,30 +149,25 @@ class ProjectManager:
             f"{lead_data['nombre']}{lead_data['fecha']}".encode()
         ).hexdigest()[:8]
         self.leads.append(lead_data)
-        with open("leads_db.json", 'w', encoding='utf-8') as f:
-            json.dump(self.leads, f, indent=2, ensure_ascii=False)
+        write_json_atomic(self.leads_file, self.leads)
 
     def save_project(self, project_id: str, data: Dict):
         self.projects[project_id] = {
             **data,
             'updated_at': datetime.now().isoformat()
         }
-        with open(self.storage_file, 'w', encoding='utf-8') as f:
-            json.dump(self.projects, f, indent=2, ensure_ascii=False)
+        write_json_atomic(self.storage_file, self.projects)
 
     def get_project(self, project_id: str) -> Optional[Dict]:
         return self.projects.get(project_id)
 
     def list_projects(self) -> List[Dict]:
-        return [
-            {'id': k, **v} for k, v in self.projects.items()
-        ]
+        return list_dict_values(self.projects)
 
     def delete_project(self, project_id: str):
         if project_id in self.projects:
             del self.projects[project_id]
-            with open(self.storage_file, 'w', encoding='utf-8') as f:
-                json.dump(self.projects, f, indent=2, ensure_ascii=False)
+            write_json_atomic(self.storage_file, self.projects)
 
 
 class BudgetCalculator:
@@ -267,7 +269,8 @@ class BudgetCalculator:
 
             # Hormigón
             vol_hormigon = cls.calcular_volumen_hormigon(area_muros + area_techo)
-            vol_hormigon *= cls.FACTORES_RENDIMIENTO["desperdicio_hormigon"]
+            # Nota: el desperdicio debe incrementar el volumen, no reducirlo.
+            vol_hormigon *= (1 + cls.FACTORES_RENDIMIENTO["desperdicio_hormigon"])
             data.append({
                 "Categoria": "Hormigón",
                 "Material": "Hormigón Cemex 3000 PSI",
@@ -588,6 +591,48 @@ def initialize_gemini(api_key: str) -> Optional[any]:
     except Exception as e:
         st.error(f"Error configurando Gemini: {e}")
         return None
+
+
+def get_gemini_api_key_from_config() -> str:
+    # Prioridad: secrets.toml -> env var -> vacío
+    try:
+        k = st.secrets.get("gemini", {}).get("api_key", "")
+        if k:
+            return str(k)
+    except Exception:
+        pass
+    return os.getenv("GEMINI_API_KEY", "") or ""
+
+
+def estimate_build_time_days(area_m2: float, productividad_m2_dia: float, min_days: float = 1.0) -> float:
+    if productividad_m2_dia <= 0:
+        return float("nan")
+    return max(min_days, area_m2 / productividad_m2_dia)
+
+
+def estimate_foundation_volume_m3(area_m2: float, metodo: str) -> float:
+    """
+    Estimación rápida para comparar métodos.
+    - Tradicional suele requerir mayor cimentación por peso.
+    """
+    base = area_m2 * 0.15
+    metodo = (metodo or "").lower()
+    if "tradicional" in metodo:
+        return base * 1.15
+    if "vigas h" in metodo or "isotex" in metodo or "icf" in metodo:
+        return base * 1.00
+    return base
+
+
+def calc_h_beams_kg(area_m2: float, perimetro_m: float, beam_spacing_m: float, kg_per_m: float) -> float:
+    """
+    Modelo paramétrico simple: longitud total de vigas ≈ (perímetro) + (2 * área/espaciamiento).
+    Es una aproximación razonable para una retícula básica.
+    """
+    if beam_spacing_m <= 0 or kg_per_m <= 0:
+        return 0.0
+    total_len_m = max(0.0, float(perimetro_m)) + 2.0 * (float(area_m2) / float(beam_spacing_m))
+    return max(0.0, total_len_m * float(kg_per_m))
 
 
 # ============================================================================
@@ -925,7 +970,7 @@ def pagina_calculadora():
 
         sistema_sel = st.selectbox(
             "🏗️ Sistema Constructivo",
-            ["Paneles Isotex", "ICF Proform"],
+            ["Paneles Isotex", "ICF Proform", "Vigas H + Cerramiento EPS", "Vigas H + Cerramiento ICF"],
             help="Isotex: Paneles de EPS con malla. ICF: Encofrado aislante permanente"
         )
 
@@ -933,9 +978,56 @@ def pagina_calculadora():
 
         st.divider()
 
+        st.markdown("### 💲 Precios (Pricebook)")
+        pricebook = Pricebook(path=os.path.join("data", "pricebook.json"))
+        precios_actuales = pricebook.load()
+        with st.expander("Editar precios", expanded=False):
+            st.caption("Estos precios se guardan localmente en `data/pricebook.json`.")
+            df_prices = (
+                pd.DataFrame(
+                    [{"Clave": k, "Precio_RD$": float(v)} for k, v in precios_actuales.items()]
+                )
+                .sort_values("Clave")
+                .reset_index(drop=True)
+            )
+            edited = st.data_editor(
+                df_prices,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Clave": st.column_config.TextColumn(disabled=True),
+                    "Precio_RD$": st.column_config.NumberColumn(min_value=0.0, step=1.0, format="%.2f"),
+                },
+            )
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                if st.button("💾 Guardar precios", use_container_width=True):
+                    nuevos = {row["Clave"]: float(row["Precio_RD$"]) for _, row in edited.iterrows()}
+                    pricebook.save(nuevos)
+                    st.success("✅ Precios guardados")
+                    st.rerun()
+            with col_p2:
+                if st.button("↩️ Restablecer a default", use_container_width=True):
+                    pricebook.save(precios_actuales)  # asegura archivo; luego se borra abajo
+                    try:
+                        if os.path.exists(pricebook.path):
+                            os.remove(pricebook.path)
+                    except Exception:
+                        pass
+                    st.success("✅ Restablecido (se usará el default)")
+                    st.rerun()
+
+        st.divider()
+
         # IA
         st.markdown("### 🤖 Inteligencia Artificial")
-        api_key = st.text_input("Gemini API Key", type="password")
+        api_key_default = get_gemini_api_key_from_config()
+        api_key = st.text_input("Gemini API Key", value=api_key_default, type="password")
+
+        st.divider()
+        st.markdown("### ⏱️ Productividad (m²/día)")
+        prod_trad = st.number_input("Tradicional", min_value=1.0, max_value=500.0, value=12.0, step=1.0)
+        prod_eps = st.number_input("EPS/Isotex/ICF", min_value=1.0, max_value=800.0, value=25.0, step=1.0)
 
         st.divider()
 
@@ -956,6 +1048,8 @@ def pagina_calculadora():
             st.success("✅ Proyecto guardado")
 
     # Calcular presupuestos
+    # Inyecta el pricebook (editable) al motor de cálculo.
+    BudgetCalculator.PRECIOS_BASE = precios_actuales
     budget_calc = BudgetCalculator()
     obra_gris_df, obra_terminada_df = budget_calc.calcular_presupuesto_completo(
         m2=m2_in,
@@ -1002,6 +1096,16 @@ def pagina_calculadora():
             value=f"{ahorro_pct:.1f}%",
             delta=f"RD$ {comparacion['ahorro']['dinero']:,.0f}"
         )
+
+    st.markdown("### ⏱️ Tiempo estimado (productividad)")
+    col_t1, col_t2, col_t3 = st.columns(3)
+    with col_t1:
+        st.metric("Tradicional", f"{estimate_build_time_days(m2_in, prod_trad):.1f} días", f"{prod_trad:.0f} m²/día")
+    with col_t2:
+        st.metric("Sistema EPS/ICF", f"{estimate_build_time_days(m2_in, prod_eps):.1f} días", f"{prod_eps:.0f} m²/día")
+    with col_t3:
+        delta_days = estimate_build_time_days(m2_in, prod_trad) - estimate_build_time_days(m2_in, prod_eps)
+        st.metric("Ahorro de tiempo", f"{max(0.0, delta_days):.1f} días", "más rápido")
 
     st.divider()
 
@@ -1180,6 +1284,457 @@ def pagina_contacto():
     st.map([{"lat": 18.4861, "lon": -69.9312}])  # Santo Domingo
 
 
+def pagina_plano_estructura():
+    """Plano -> parámetros -> estructura (vigas H) + cerramiento + comparativas"""
+    st.markdown("""
+    <div class="main-header">
+        <h1 style="margin:0;">📐 Plano → Estructura</h1>
+        <p style="margin:10px 0 0 0;">Sube un plano (imagen) y genera un modelo paramétrico para vigas H + EPS/ICF</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.info("MVP: el análisis del plano se convierte en parámetros editables. Mientras más claras sean las cotas/escala, mejor.")
+
+    with st.sidebar:
+        st.markdown("### 🤖 IA (opcional)")
+        api_key_default = get_gemini_api_key_from_config()
+        api_key = st.text_input("Gemini API Key", value=api_key_default, type="password")
+        model_vision = None
+        if api_key:
+            try:
+                genai.configure(api_key=api_key)
+                # Modelo con visión (si está disponible en tu cuenta)
+                model_vision = genai.GenerativeModel("gemini-1.5-flash")
+            except Exception as e:
+                st.warning(f"No pude inicializar el modelo con visión: {e}")
+
+    upload = st.file_uploader("Sube plano (PNG/JPG/PDF).", type=["png", "jpg", "jpeg", "pdf"])
+
+    params_default = {
+        "area_m2": 120.0,
+        "niveles": 1,
+        "perimetro_m": 44.0,
+        "altura_muro_m": 2.8,
+        "espesor_muro_m": 0.12,
+        "observaciones": "",
+    }
+
+    img = None
+    if upload is not None and upload.type == "application/pdf":
+        pdf_bytes = upload.getvalue()
+        img = pdf_first_page_to_image(pdf_bytes, dpi=150)
+        if img is None:
+            st.error("No pude convertir el PDF a imagen. Verifica que `PyMuPDF` esté instalado y que el PDF no esté corrupto.")
+    elif upload is not None:
+        img = Image.open(upload).convert("RGB")
+
+    if img is not None:
+        st.image(img, caption="Plano cargado", use_container_width=True)
+
+        if model_vision and st.button("🧠 Analizar plano con IA", use_container_width=True):
+            with st.spinner("Analizando plano..."):
+                data, raw = analyze_plan_image_with_gemini(model_vision, img)
+            st.session_state["plan_raw"] = raw
+            if isinstance(data, dict):
+                st.session_state["plan_params"] = {**params_default, **{k: v for k, v in data.items() if v is not None}}
+                st.success("✅ Parámetros sugeridos por IA (revisa/ajusta abajo).")
+            else:
+                st.warning("No pude extraer un JSON confiable. Usa los parámetros manuales.")
+
+        st.divider()
+        st.markdown("### ✍️ Trazado sobre el plano (Opción B)")
+        if st_canvas is None:
+            st.error("Falta dependencia `streamlit-drawable-canvas`. Ejecuta `pip install -r requirements.txt` y reinicia la app.")
+        else:
+            st.caption("Paso 1: dibuja una línea sobre una medida conocida para calibrar la escala. Paso 2: dibuja un polígono del perímetro.")
+
+            col_can1, col_can2 = st.columns(2)
+            with col_can1:
+                st.markdown("#### 1) Escala")
+                real_len = st.number_input("Longitud real de la línea (m)", min_value=0.1, max_value=500.0, value=5.0, step=0.1)
+                scale_canvas = st_canvas(
+                    background_image=img,
+                    height=500,
+                    width=700,
+                    drawing_mode="line",
+                    stroke_width=3,
+                    stroke_color="#00A3FF",
+                    fill_color="rgba(0,0,0,0)",
+                    update_streamlit=True,
+                    key="scale_canvas",
+                )
+                objects_scale = (scale_canvas.json_data or {}).get("objects", []) if scale_canvas else []
+                m_per_px = scale_from_canvas_line(objects_scale, real_len) if objects_scale else None
+                if m_per_px:
+                    st.success(f"Escala estimada: {m_per_px:.6f} m/px")
+                else:
+                    st.warning("Dibuja una línea para calcular la escala.")
+
+            with col_can2:
+                st.markdown("#### 2) Perímetro")
+                per_canvas = st_canvas(
+                    background_image=img,
+                    height=500,
+                    width=700,
+                    drawing_mode="polygon",
+                    stroke_width=2,
+                    stroke_color="#28a745",
+                    fill_color="rgba(40,167,69,0.10)",
+                    update_streamlit=True,
+                    key="perimeter_canvas",
+                )
+                objects_per = (per_canvas.json_data or {}).get("objects", []) if per_canvas else []
+                poly = polygon_from_canvas(objects_per) if objects_per else None
+                if poly and m_per_px:
+                    area_px2, per_px = polygon_area_perimeter(poly)
+                    area_m2 = area_px2 * (m_per_px ** 2)
+                    per_m = per_px * m_per_px
+                    st.success(f"Área (planta) ≈ {area_m2:,.2f} m² | Perímetro ≈ {per_m:,.2f} m")
+                    if st.button("⬇️ Usar estos valores en el modelo", use_container_width=True):
+                        merged = dict(st.session_state.get("plan_params", params_default))
+                        merged["area_m2"] = float(area_m2)
+                        merged["perimetro_m"] = float(per_m)
+                        st.session_state["plan_params"] = merged
+                        st.success("✅ Parámetros actualizados desde el trazado.")
+                        st.rerun()
+                elif poly and not m_per_px:
+                    st.warning("Primero calibra la escala con una línea.")
+
+            st.divider()
+            st.markdown("### 🧱 Capas reales (desde tu trazado)")
+            if m_per_px:
+                col_layer1, col_layer2 = st.columns(2)
+                with col_layer1:
+                    st.markdown("#### Muros interiores (líneas)")
+                    walls_canvas = st_canvas(
+                        background_image=img,
+                        height=500,
+                        width=700,
+                        drawing_mode="line",
+                        stroke_width=3,
+                        stroke_color="#10B981",
+                        fill_color="rgba(0,0,0,0)",
+                        update_streamlit=True,
+                        key="walls_canvas",
+                    )
+                    wall_objs = (walls_canvas.json_data or {}).get("objects", []) if walls_canvas else []
+                    wall_segs = extract_line_segments(wall_objs)
+                    wall_len_m = sum((((a[0]-b[0])**2 + (a[1]-b[1])**2) ** 0.5) for a, b in wall_segs) * m_per_px
+                    st.write(f"Longitud total muros interiores (aprox): **{wall_len_m:,.2f} m**")
+
+                with col_layer2:
+                    st.markdown("#### Puntos eléctricos / hidrosanitarios (círculos)")
+                    st.caption("Dibuja círculos pequeños como marcadores (tomas, interruptores, puntos de agua).")
+                    fixtures_canvas = st_canvas(
+                        background_image=img,
+                        height=500,
+                        width=700,
+                        drawing_mode="circle",
+                        stroke_width=2,
+                        stroke_color="#F59E0B",
+                        fill_color="rgba(245,158,11,0.25)",
+                        update_streamlit=True,
+                        key="fixtures_canvas",
+                    )
+                    fix_objs = (fixtures_canvas.json_data or {}).get("objects", []) if fixtures_canvas else []
+                    pts = extract_points(fix_objs)
+                    st.write(f"Marcadores detectados: **{len(pts)}**")
+
+                if st.button("💾 Guardar capas del plano en sesión", use_container_width=True):
+                    st.session_state["layers"] = {
+                        "m_per_px": float(m_per_px),
+                        "walls_segments_px": [((float(a[0]), float(a[1])), (float(b[0]), float(b[1]))) for a, b in wall_segs],
+                        "fixture_points_px": [(float(x), float(y)) for x, y in pts],
+                    }
+                    st.success("✅ Capas guardadas. Abre `🧱 Visor BIM 3D` para verlas.")
+            else:
+                st.info("Calibra primero la escala para poder convertir capas a metros.")
+
+    params = st.session_state.get("plan_params", params_default)
+
+    st.markdown("### 🧩 Parámetros del modelo (editables)")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        area_m2 = st.number_input("Área construida (m²)", min_value=10.0, max_value=100000.0, value=float(params.get("area_m2") or 120.0), step=10.0)
+        niveles = st.number_input("Niveles", min_value=1, max_value=20, value=int(params.get("niveles") or 1), step=1)
+    with c2:
+        perimetro_m = st.number_input("Perímetro estimado (m)", min_value=10.0, max_value=5000.0, value=float(params.get("perimetro_m") or 44.0), step=1.0)
+        altura_muro_m = st.number_input("Altura de muro (m)", min_value=2.2, max_value=6.0, value=float(params.get("altura_muro_m") or 2.8), step=0.1)
+    with c3:
+        sistema = st.selectbox("Cerramiento", ["EPS", "ICF"], index=0)
+        espesor_muro_m = st.number_input("Espesor muro (m)", min_value=0.08, max_value=0.30, value=float(params.get("espesor_muro_m") or 0.12), step=0.01)
+
+    st.markdown("### 🏗️ Estructura con Vigas H (modelo paramétrico)")
+    colb1, colb2, colb3 = st.columns(3)
+    with colb1:
+        beam_spacing = st.number_input("Espaciamiento retícula (m)", min_value=1.5, max_value=8.0, value=3.0, step=0.25)
+    with colb2:
+        kg_per_m = st.number_input("Peso viga (kg/m)", min_value=5.0, max_value=200.0, value=18.0, step=1.0)
+    with colb3:
+        prod_trad = st.number_input("Productividad tradicional (m²/día)", min_value=1.0, max_value=500.0, value=12.0, step=1.0)
+        prod_eps = st.number_input("Productividad EPS/ICF (m²/día)", min_value=1.0, max_value=800.0, value=25.0, step=1.0)
+
+    pricebook = Pricebook(path=os.path.join("data", "pricebook.json"))
+    precios = pricebook.load()
+
+    vigas_kg = calc_h_beams_kg(area_m2 * niveles, perimetro_m, beam_spacing, kg_per_m)
+    costo_vigas = vigas_kg * float(precios.get("Viga_H_kg", 105.0))
+
+    area_muros = perimetro_m * altura_muro_m * niveles
+    st.metric("Acero en vigas H (estimado)", f"{vigas_kg:,.0f} kg", f"RD$ {costo_vigas:,.0f}")
+
+    st.markdown("### 🧱 Cerramiento (EPS/ICF) + Cimientos + Comparativa")
+    c_f1, c_f2, c_f3 = st.columns(3)
+    with c_f1:
+        vol_found_trad = estimate_foundation_volume_m3(area_m2 * niveles, "tradicional")
+        st.metric("Cimientos (Tradicional)", f"{vol_found_trad:.2f} m³", "estimado")
+    with c_f2:
+        vol_found_sys = estimate_foundation_volume_m3(area_m2 * niveles, "vigas h + eps/icf")
+        st.metric("Cimientos (EPS/ICF)", f"{vol_found_sys:.2f} m³", "estimado")
+    with c_f3:
+        t_trad = estimate_build_time_days(area_m2 * niveles, prod_trad)
+        t_sys = estimate_build_time_days(area_m2 * niveles, prod_eps)
+        st.metric("Tiempo (Tradicional vs EPS/ICF)", f"{t_trad:.1f} → {t_sys:.1f} días", f"{max(0.0, t_trad - t_sys):.1f} días menos")
+
+    st.markdown("#### Detalle rápido del cerramiento")
+    if sistema == "EPS":
+        panel_m2 = area_muros * 1.05
+        costo_panel = panel_m2 * float(precios.get("Panel_Muro", 925.0))
+        st.write(f"- Área de muros estimada: **{area_muros:,.1f} m²**")
+        st.write(f"- Paneles EPS/Isotex para cerramiento (con 5%): **{panel_m2:,.1f} m²**")
+        st.write(f"- Costo estimado cerramiento: **RD$ {costo_panel:,.0f}**")
+    else:
+        bloques_m2 = area_muros * 0.85
+        costo_icf = bloques_m2 * float(precios.get("Panel_Muro", 925.0)) * 1.15
+        st.write(f"- Área de muros estimada: **{area_muros:,.1f} m²**")
+        st.write(f"- Bloques ICF (equivalente m²): **{bloques_m2:,.1f} m²**")
+        st.write(f"- Costo estimado cerramiento: **RD$ {costo_icf:,.0f}**")
+
+    with st.expander("Ver respuesta cruda de IA (si aplica)", expanded=False):
+        st.code(st.session_state.get("plan_raw", "") or "(sin análisis IA)")
+
+
+def _mesh_box(x0, x1, y0, y1, z0, z1):
+    # Devuelve puntos para un cubo/ prisma rectangular en plotly Mesh3d
+    x = [x0, x1, x1, x0, x0, x1, x1, x0]
+    y = [y0, y0, y1, y1, y0, y0, y1, y1]
+    z = [z0, z0, z0, z0, z1, z1, z1, z1]
+    i = [0, 0, 0, 1, 1, 2, 4, 4, 4, 5, 5, 6]
+    j = [1, 2, 3, 2, 5, 3, 5, 6, 7, 6, 1, 2]
+    k = [2, 3, 1, 5, 4, 7, 6, 7, 5, 1, 0, 3]
+    return x, y, z, i, j, k
+
+
+def pagina_visor_bim():
+    """Visor 3D por capas (conceptual) para atraer al cliente."""
+    st.markdown("""
+    <div class="main-header">
+        <h1 style="margin:0;">🧱 Visor BIM 3D (Capas)</h1>
+        <p style="margin:10px 0 0 0;">Estructura, cerramiento, techo e instalaciones (eléctrica/hidrosanitaria) por capas</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.caption("Visor conceptual: pensado para explicar al cliente el sistema y sus capas. No sustituye un modelado estructural final.")
+
+    # Fuente de parámetros: si vienes del trazado, úsalo; si no, defaults.
+    params = st.session_state.get("plan_params", {
+        "area_m2": 120.0,
+        "niveles": 1,
+        "perimetro_m": 44.0,
+        "altura_muro_m": 2.8,
+    })
+    layers = st.session_state.get("layers", None)
+
+    with st.sidebar:
+        st.markdown("### 🧩 Parámetros del modelo")
+        area_m2 = st.number_input("Área planta (m²)", min_value=10.0, max_value=100000.0, value=float(params.get("area_m2") or 120.0), step=10.0)
+        niveles = st.number_input("Niveles", min_value=1, max_value=20, value=int(params.get("niveles") or 1), step=1)
+        perimetro_m = st.number_input("Perímetro (m)", min_value=10.0, max_value=5000.0, value=float(params.get("perimetro_m") or 44.0), step=1.0)
+        altura_muro = st.number_input("Altura de muro (m)", min_value=2.2, max_value=6.0, value=float(params.get("altura_muro_m") or 2.8), step=0.1)
+
+        st.divider()
+        st.markdown("### 🧱 Sistema")
+        sistema = st.selectbox("Sistema", ["Sin vigas H (panel estructural)", "Vigas H + Cerramiento EPS", "Vigas H + Cerramiento ICF"])
+
+        st.divider()
+        st.markdown("### 🧩 Capas")
+        show_structure = st.checkbox("Estructura (vigas/columnas)", True)
+        show_enclosure = st.checkbox("Cerramiento (muros/paneles)", True)
+        show_roof = st.checkbox("Techo", True)
+        show_electrical = st.checkbox("Instalación eléctrica", True)
+        show_hydrosan = st.checkbox("Instalación hidrosanitaria", True)
+
+        st.divider()
+        st.markdown("### 🧾 Catálogo")
+        catalog = Catalog(path=os.path.join("data", "catalog_isotex.json"))
+        cat = catalog.load()
+        prods = catalog.list_products()
+        _ = st.selectbox(
+            "Producto de muro (referencia)",
+            [p["name"] for p in prods if p.get("category") == "muros"] or ["(sin catálogo)"],
+        )
+        _ = st.selectbox(
+            "Producto de techo (referencia)",
+            [p["name"] for p in prods if p.get("category") == "techos"] or ["(sin catálogo)"],
+        )
+        st.caption(f"Proveedor: {cat.get('provider', {}).get('name', 'N/A')}")
+
+    # Derivar dimensiones aproximadas (rectángulo equivalente) desde área/perímetro.
+    # Para un MVP visual: asumimos planta rectangular.
+    P = float(perimetro_m)
+    A = float(area_m2)
+    # Resolver a,b: 2(a+b)=P y ab=A -> b = P/2 - a -> a(P/2 - a)=A
+    # a^2 - (P/2)a + A = 0
+    disc = max(0.0, (P / 2) ** 2 - 4 * A)
+    a = ((P / 2) + (disc ** 0.5)) / 2 if disc >= 0 else (P / 4)
+    b = max(1.0, A / a) if a > 0 else (P / 4)
+    length = float(max(a, b))
+    width = float(min(a, b))
+
+    # Coordenadas: (0..L, 0..W) y altura por nivel.
+    total_h = altura_muro * niveles
+    wall_th = 0.12
+    beam_th = 0.20
+
+    fig = go.Figure()
+
+    # Estructura: columnas + vigas (conceptual)
+    if show_structure and ("Vigas H" in sistema):
+        # Columnas en esquinas
+        col_size = 0.18
+        for (x0, y0) in [(0, 0), (length, 0), (length, width), (0, width)]:
+            x, y, z, i, j, k = _mesh_box(x0 - col_size / 2, x0 + col_size / 2, y0 - col_size / 2, y0 + col_size / 2, 0, total_h)
+            fig.add_trace(go.Mesh3d(x=x, y=y, z=z, i=i, j=j, k=k, color="#4B5563", opacity=0.55, name="Columnas"))
+
+        # Vigas perimetrales arriba
+        z0 = total_h - beam_th
+        # 4 vigas (prismas delgados)
+        beams = [
+            (0, length, -beam_th / 2, beam_th / 2),               # borde y=0
+            (0, length, width - beam_th / 2, width + beam_th / 2),# borde y=W
+            (-beam_th / 2, beam_th / 2, 0, width),               # borde x=0
+            (length - beam_th / 2, length + beam_th / 2, 0, width),# borde x=L
+        ]
+        for bx0, bx1, by0, by1 in beams:
+            x, y, z, i, j, k = _mesh_box(bx0, bx1, by0, by1, z0, total_h)
+            fig.add_trace(go.Mesh3d(x=x, y=y, z=z, i=i, j=j, k=k, color="#111827", opacity=0.65, name="Vigas H"))
+
+    # Cerramiento: muros perimetrales
+    if show_enclosure:
+        z0, z1 = 0, total_h
+        wall_color = "#22C55E" if "EPS" in sistema or "panel" in sistema.lower() else "#0EA5E9"
+        # 4 muros delgados
+        walls = [
+            (0, length, 0, wall_th),  # y=0
+            (0, length, width - wall_th, width),  # y=W
+            (0, wall_th, 0, width),  # x=0
+            (length - wall_th, length, 0, width),  # x=L
+        ]
+        for wx0, wx1, wy0, wy1 in walls:
+            x, y, z, i, j, k = _mesh_box(wx0, wx1, wy0, wy1, z0, z1)
+            fig.add_trace(go.Mesh3d(x=x, y=y, z=z, i=i, j=j, k=k, color=wall_color, opacity=0.22, name="Muros/Paneles"))
+
+    # Techo: losa/panel superior
+    if show_roof:
+        x, y, z, i, j, k = _mesh_box(0, length, 0, width, total_h, total_h + 0.10)
+        fig.add_trace(go.Mesh3d(x=x, y=y, z=z, i=i, j=j, k=k, color="#93C5FD", opacity=0.25, name="Techo"))
+
+    # Eléctrica: rutas simples (líneas)
+    if show_electrical:
+        if layers and layers.get("fixture_points_px") and layers.get("m_per_px"):
+            # Renderiza marcadores reales (proyección 2D → 3D) en un plano intermedio.
+            z = total_h * 0.65
+            m_per_px = float(layers["m_per_px"])
+            pts = layers["fixture_points_px"]
+            # Normalizamos a caja del modelo: tomamos min/max de puntos px para mapear a [0..L]/[0..W]
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            minx, maxx = min(xs), max(xs)
+            miny, maxy = min(ys), max(ys)
+            def mapx(x):
+                return (x - minx) / (maxx - minx + 1e-9) * length
+            def mapy(y):
+                return (y - miny) / (maxy - miny + 1e-9) * width
+            fig.add_trace(go.Scatter3d(
+                x=[mapx(p[0]) for p in pts],
+                y=[mapy(p[1]) for p in pts],
+                z=[z for _ in pts],
+                mode="markers",
+                marker=dict(color="#F59E0B", size=5),
+                name="Eléctrica (marcadores)",
+            ))
+        else:
+            z = total_h * 0.65
+            fig.add_trace(go.Scatter3d(
+                x=[length * 0.1, length * 0.9, length * 0.9],
+                y=[width * 0.15, width * 0.15, width * 0.85],
+                z=[z, z, z],
+                mode="lines",
+                line=dict(color="#F59E0B", width=6),
+                name="Eléctrica",
+            ))
+
+    # Hidrosanitaria: rutas simples (líneas)
+    if show_hydrosan:
+        z = total_h * 0.35
+        fig.add_trace(go.Scatter3d(
+            x=[length * 0.2, length * 0.2, length * 0.8],
+            y=[width * 0.8, width * 0.2, width * 0.2],
+            z=[z, z, z],
+            mode="lines",
+            line=dict(color="#06B6D4", width=6),
+            name="Hidrosanitaria",
+        ))
+
+    # Muros interiores desde trazado (líneas reales)
+    if layers and show_enclosure and layers.get("walls_segments_px"):
+        segs = layers["walls_segments_px"]
+        xs = [p[0] for seg in segs for p in seg]
+        ys = [p[1] for seg in segs for p in seg]
+        minx, maxx = min(xs), max(xs)
+        miny, maxy = min(ys), max(ys)
+        def mapx(x):
+            return (x - minx) / (maxx - minx + 1e-9) * length
+        def mapy(y):
+            return (y - miny) / (maxy - miny + 1e-9) * width
+        # Dibujamos cada segmento como línea vertical extruida en Z (de 0 a total_h)
+        for (a, b) in segs[:300]:  # límite de seguridad visual
+            fig.add_trace(go.Scatter3d(
+                x=[mapx(a[0]), mapx(b[0])],
+                y=[mapy(a[1]), mapy(b[1])],
+                z=[0, 0],
+                mode="lines",
+                line=dict(color="#16A34A", width=6),
+                name="Muros interiores",
+                showlegend=False,
+            ))
+        # una leyenda única
+        fig.add_trace(go.Scatter3d(
+            x=[None], y=[None], z=[None],
+            mode="lines",
+            line=dict(color="#16A34A", width=6),
+            name="Muros interiores (trazado)",
+        ))
+
+    fig.update_layout(
+        height=700,
+        scene=dict(
+            xaxis_title="X (m)",
+            yaxis_title="Y (m)",
+            zaxis_title="Z (m)",
+            aspectmode="data",
+        ),
+        legend=dict(orientation="h"),
+        margin=dict(l=10, r=10, t=10, b=10),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### 🔍 Qué sigue para que sea realmente “BIM-like”")
+    st.write("- Dibujar muros interiores y ejes de vigas desde el trazado (no solo perímetro).")
+    st.write("- Colocar puntos de tomas/interruptores y aparatos sanitarios y autorutar MEP.")
+    st.write("- Vincular cada capa a partidas del presupuesto (catálogo Isotex + mano de obra).")
+
+
 # ============================================================================
 # NAVEGACIÓN PRINCIPAL
 # ============================================================================
@@ -1192,7 +1747,7 @@ def main():
 
         menu = st.radio(
             "Navegación",
-            ["🏠 Inicio", "👷 Nuestro Team", "🧮 Calculadora", "📞 Contacto"],
+            ["🏠 Inicio", "👷 Nuestro Team", "🧮 Calculadora", "📐 Plano → Estructura", "🧱 Visor BIM 3D", "📞 Contacto"],
             label_visibility="collapsed"
         )
 
@@ -1214,6 +1769,10 @@ def main():
         pagina_team()
     elif menu == "🧮 Calculadora":
         pagina_calculadora()
+    elif menu == "📐 Plano → Estructura":
+        pagina_plano_estructura()
+    elif menu == "🧱 Visor BIM 3D":
+        pagina_visor_bim()
     elif menu == "📞 Contacto":
         pagina_contacto()
 
