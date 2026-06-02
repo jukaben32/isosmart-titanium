@@ -36,6 +36,8 @@ from utils.plan_geometry import (
 )
 from utils.pdf_utils import pdf_first_page_to_image
 from utils.catalog import Catalog
+from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
+from utils.ai_media import generate_facade_image_fal, generate_video_luma
 
 try:
     from streamlit_drawable_canvas import st_canvas
@@ -581,7 +583,6 @@ def create_download_link(pdf_content: bytes, filename: str, button_text: str = "
     </a>
     '''
 
-
 def initialize_gemini(api_key: str) -> Optional[any]:
     if not api_key:
         return None
@@ -602,6 +603,134 @@ def get_gemini_api_key_from_config() -> str:
     except Exception:
         pass
     return os.getenv("GEMINI_API_KEY", "") or ""
+
+def get_fal_key_from_config() -> str:
+    try:
+        k = st.secrets.get("fal", {}).get("api_key", "")
+        if k:
+            return str(k)
+    except Exception:
+        pass
+    return os.getenv("FAL_KEY", "") or ""
+
+def get_luma_key_from_config() -> str:
+    try:
+        k = st.secrets.get("luma", {}).get("api_key", "")
+        if k:
+            return str(k)
+    except Exception:
+        pass
+    return os.getenv("LUMA_API_KEY", "") or ""
+
+def init_text_design_state():
+    """Inicializa valores seguros para el asistente Text-to-Design."""
+    if "text_design_params" not in st.session_state:
+        st.session_state["text_design_params"] = dict(DEFAULT_TEXT_DESIGN_PARAMS)
+    if "text_design_raw" not in st.session_state:
+        st.session_state["text_design_raw"] = ""
+    if "url_imagen" not in st.session_state:
+        st.session_state["url_imagen"] = None
+    if "url_video" not in st.session_state:
+        st.session_state["url_video"] = None
+
+
+def render_text_design_assistant(context_key: str):
+    """
+    Renderiza el asistente de texto libre.
+
+    El asistente solo prellena parámetros; no modifica las fórmulas de cálculo.
+    """
+    init_text_design_state()
+    api_key_default = get_gemini_api_key_from_config()
+    fal_key_default = get_fal_key_from_config()
+    luma_key_default = get_luma_key_from_config()
+
+    with st.expander("✨ ¿No tienes planos? Diseña el concepto con IA", expanded=False):
+        st.caption("Describe la vivienda y la IA estimará parámetros editables para el presupuesto, además de generar un render 3D y video si provees las claves de Fal y Luma.")
+        descripcion = st.text_area(
+            "Describe tu idea de vivienda",
+            placeholder="Ej: Casa moderna de 2 niveles en Samaná, 3 habitaciones, terraza, ventanales amplios...",
+            key=f"text_design_desc_{context_key}",
+        )
+        
+        col_keys1, col_keys2, col_keys3 = st.columns(3)
+        with col_keys1:
+            api_key = st.text_input("Gemini API Key (Requerido)", value=api_key_default, type="password", key=f"text_design_api_key_{context_key}")
+        with col_keys2:
+            fal_key = st.text_input("Fal.ai Key (Para Imagen)", value=fal_key_default, type="password", key=f"text_design_fal_key_{context_key}")
+        with col_keys3:
+            luma_key = st.text_input("Luma AI Key (Para Video)", value=luma_key_default, type="password", key=f"text_design_luma_key_{context_key}")
+
+        if st.button("Generar Concepto y Medios Visuales", key=f"text_design_btn_{context_key}", use_container_width=True):
+            if not descripcion.strip():
+                st.warning("Escribe una descripción corta de la vivienda.")
+                return
+            if not api_key:
+                st.warning("Configura tu Gemini API Key en Streamlit Secrets o pégala aquí.")
+                return
+
+            # 1. Extraer dimensiones con Gemini
+            try:
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                with st.spinner("🧠 Interpretando tu idea y calculando dimensiones..."):
+                    params, raw = analyze_text_design_with_gemini(model, descripcion)
+                st.session_state["text_design_raw"] = raw
+            except Exception as e:
+                st.error(f"No pude consultar Gemini: {e}")
+                return
+
+            if not params:
+                st.warning("La IA no devolvió un JSON confiable. Ajusta la descripción e intenta otra vez.")
+                return
+
+            # Actualizar estado para la app
+            st.session_state["text_design_params"] = params
+            st.session_state["calc_area_m2"] = float(params["area_m2"])
+            st.session_state["plan_area_m2"] = float(params["area_m2"])
+            st.session_state["plan_niveles"] = int(params["niveles"])
+            st.session_state["plan_perimetro_m"] = float(params["perimetro_m"])
+            st.session_state["plan_altura_muro_m"] = float(params["altura_muro_m"])
+            st.session_state["plan_espesor_muro_m"] = float(params["espesor_muro_m"])
+            st.session_state["plan_params"] = {
+                "area_m2": params["area_m2"],
+                "niveles": params["niveles"],
+                "perimetro_m": params["perimetro_m"],
+                "altura_muro_m": params["altura_muro_m"],
+                "espesor_muro_m": params["espesor_muro_m"],
+                "observaciones": params.get("observaciones", ""),
+            }
+            
+            # 2. Generar Imagen con Fal.ai
+            if fal_key:
+                with st.spinner("🖼️ Generando render de fachada fotorrealista..."):
+                    image_url = generate_facade_image_fal(descripcion, fal_key)
+                    if image_url:
+                        st.session_state["url_imagen"] = image_url
+                        
+                        # 3. Generar Video con Luma si hay imagen y llave de Luma
+                        if luma_key:
+                            with st.spinner("🎥 Generando recorrido virtual en video (puede tomar un par de minutos)..."):
+                                video_url = generate_video_luma(image_url, descripcion, luma_key)
+                                if video_url:
+                                    st.session_state["url_video"] = video_url
+                                else:
+                                    st.warning("No se pudo generar el video cinematográfico.")
+                    else:
+                        st.warning("No se pudo generar el render de fachada.")
+
+            st.success("¡Concepto generado con éxito! Revisa los resultados a continuación.")
+
+    # Mostrar medios generados fuera del expander
+    if st.session_state.get("url_imagen") or st.session_state.get("url_video"):
+        st.subheader("✨ Visualización del Concepto IA")
+        col_media1, col_media2 = st.columns(2)
+        with col_media1:
+            if st.session_state.get("url_imagen"):
+                st.image(st.session_state["url_imagen"], caption="Render de Fachada (Fal.ai)", use_column_width=True)
+        with col_media2:
+            if st.session_state.get("url_video"):
+                st.video(st.session_state["url_video"])
 
 
 def estimate_build_time_days(area_m2: float, productividad_m2_dia: float, min_days: float = 1.0) -> float:
@@ -959,11 +1088,18 @@ def pagina_calculadora():
     # Barra lateral de configuración
     with st.sidebar:
         st.markdown("### 📋 Datos del Proyecto")
+        render_text_design_assistant("calculadora")
+        text_design_params = st.session_state.get("text_design_params", DEFAULT_TEXT_DESIGN_PARAMS)
 
         cliente = st.text_input("👤 Nombre del Cliente", "Proyecto Residencial")
         col1, col2 = st.columns(2)
         with col1:
-            m2_in = st.number_input("📐 Área (m²)", value=120.0, min_value=10.0, max_value=10000.0)
+            m2_in = st.number_input(
+                "📐 Área (m²)",
+                value=float(text_design_params.get("area_m2", 120.0)),
+                min_value=10.0,
+                max_value=10000.0,
+            )
         with col2:
             calidad = st.selectbox("🎨 Calidad Terminados",
                                    ["económica", "media", "alta", "lujo"])
@@ -1016,13 +1152,6 @@ def pagina_calculadora():
                         pass
                     st.success("✅ Restablecido (se usará el default)")
                     st.rerun()
-
-        st.divider()
-
-        # IA
-        st.markdown("### 🤖 Inteligencia Artificial")
-        api_key_default = get_gemini_api_key_from_config()
-        api_key = st.text_input("Gemini API Key", value=api_key_default, type="password")
 
         st.divider()
         st.markdown("### ⏱️ Productividad (m²/día)")
@@ -1295,6 +1424,12 @@ def pagina_plano_estructura():
 
     st.info("MVP: el análisis del plano se convierte en parámetros editables. Mientras más claras sean las cotas/escala, mejor.")
 
+    params_default = {
+        **DEFAULT_TEXT_DESIGN_PARAMS,
+        "observaciones": "",
+    }
+    render_text_design_assistant("plano")
+
     with st.sidebar:
         st.markdown("### 🤖 IA (opcional)")
         api_key_default = get_gemini_api_key_from_config()
@@ -1309,15 +1444,6 @@ def pagina_plano_estructura():
                 st.warning(f"No pude inicializar el modelo con visión: {e}")
 
     upload = st.file_uploader("Sube plano (PNG/JPG/PDF).", type=["png", "jpg", "jpeg", "pdf"])
-
-    params_default = {
-        "area_m2": 120.0,
-        "niveles": 1,
-        "perimetro_m": 44.0,
-        "altura_muro_m": 2.8,
-        "espesor_muro_m": 0.12,
-        "observaciones": "",
-    }
 
     img = None
     if upload is not None and upload.type == "application/pdf":
@@ -1511,7 +1637,10 @@ def pagina_plano_estructura():
         st.write(f"- Costo estimado cerramiento: **RD$ {costo_icf:,.0f}**")
 
     with st.expander("Ver respuesta cruda de IA (si aplica)", expanded=False):
-        st.code(st.session_state.get("plan_raw", "") or "(sin análisis IA)")
+        st.markdown("**Text-to-Design**")
+        st.code(st.session_state.get("text_design_raw", "") or "(sin análisis por texto)")
+        st.markdown("**Análisis de plano**")
+        st.code(st.session_state.get("plan_raw", "") or "(sin análisis de plano)")
 
 
 def _mesh_box(x0, x1, y0, y1, z0, z1):
