@@ -6,6 +6,10 @@ Cálculos de ROI, VAN, TIR, análisis de sensibilidad y proyecciones
 
 import pandas as pd
 import numpy as np
+try:
+    import numpy_financial as npf
+except ImportError:
+    npf = None  # Fallback si no está instalado
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
@@ -123,13 +127,20 @@ class AnalisisFinanciero:
         # Crear array de numpy para cálculos
         flujos_np = np.array(flujos)
 
-        # Calcular VAN
-        van = np.npv(tasa_descuento, flujos_np)
+        # Calcular VAN (usando numpy-financial si está disponible)
+        if npf is not None:
+            van = npf.npv(tasa_descuento, flujos_np)
+        else:
+            # Cálculo manual del VAN como fallback
+            van = sum(f / (1 + tasa_descuento)**i for i, f in enumerate(flujos_np))
 
-        # Calcular TIR
+        # Calcular TIR (usando numpy-financial si está disponible)
         try:
-            tir = np.irr(flujos_np) * 100  # En porcentaje
-        except:
+            if npf is not None:
+                tir = npf.irr(flujos_np) * 100  # En porcentaje
+            else:
+                tir = 0.0
+        except Exception:
             tir = 0.0
 
         # Payback simple (sin descontar)
