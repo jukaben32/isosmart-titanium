@@ -38,6 +38,7 @@ from utils.pdf_utils import pdf_first_page_to_image
 from utils.catalog import Catalog
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
 from utils.ai_media import generate_facade_image_fal, generate_video_luma
+from utils.financiera import AnalisisFinanciero
 
 try:
     from streamlit_drawable_canvas import st_canvas
@@ -1293,11 +1294,35 @@ def pagina_calculadora():
             - **Peso:** {comparacion['tradicional']['peso_kg']:,.0f} kg
             """)
 
+    # Módulo de Financiamiento
+    st.divider()
+    st.markdown("### 🏦 Opciones de Financiamiento")
+    
+    col_fin1, col_fin2, col_fin3 = st.columns(3)
+    with col_fin1:
+        plazo_anos = st.slider("Plazo del Préstamo (Años)", min_value=1, max_value=30, value=20)
+    with col_fin2:
+        tasa_interes = st.slider("Tasa de Interés Anual (%)", min_value=1.0, max_value=25.0, value=12.0, step=0.5)
+    with col_fin3:
+        inicial_pct = st.slider("Inicial (%)", min_value=10, max_value=50, value=20, step=5)
+    
+    monto_financiar = total_general * (1 - inicial_pct/100)
+    resultado_fin = AnalisisFinanciero.calcular_costo_financiamiento(
+        monto=monto_financiar, 
+        tasa_anual=tasa_interes/100, 
+        plazo_meses=plazo_anos*12
+    )
+    
+    col_res1, col_res2, col_res3 = st.columns(3)
+    col_res1.metric("Inicial Requerido", f"RD$ {total_general * (inicial_pct/100):,.0f}")
+    col_res2.metric("Monto a Financiar", f"RD$ {monto_financiar:,.0f}")
+    col_res3.metric("Cuota Mensual Estimada", f"RD$ {resultado_fin['cuota_mensual']:,.0f}")
+
     # Exportación
     st.divider()
-    st.markdown("##### 📥 Exportar Presupuesto")
+    st.markdown("##### 📥 Exportar y Compartir")
 
-    col_exp1, col_exp2 = st.columns(2)
+    col_exp1, col_exp2, col_exp3 = st.columns(3)
 
     with col_exp1:
         if st.button("📄 Generar PDF Completo", use_container_width=True):
@@ -1310,6 +1335,18 @@ def pagina_calculadora():
             )
 
     with col_exp2:
+        from urllib.parse import quote
+        wa_text = f"Hola {cliente}, aquí está el resumen de su presupuesto de construcción:\nSistema: {sistema_sel}\nÁrea: {m2_in} m²\nCosto Total: RD$ {total_general:,.0f}\n"
+        wa_url = f"https://api.whatsapp.com/send?text={quote(wa_text)}"
+        st.markdown(
+            f'<a href="{wa_url}" target="_blank">'
+            f'<button style="width:100%; border-radius:10px; background-color:#25D366; color:white; '
+            f'padding:15px; border:none; cursor:pointer; font-size:16px; font-weight:bold;">'
+            f'💬 Enviar por WhatsApp</button></a>',
+            unsafe_allow_html=True
+        )
+
+    with col_exp3:
         if st.button("📊 Exportar Excel", use_container_width=True):
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -1325,6 +1362,47 @@ def pagina_calculadora():
                 f'📊 Descargar Excel</button></a>',
                 unsafe_allow_html=True
             )
+
+    st.markdown("##### 📧 Enviar por Correo Electrónico")
+    email_dest = st.text_input("Correo electrónico del cliente", placeholder="cliente@ejemplo.com", key="email_input")
+    if st.button("✉️ Enviar Presupuesto PDF", use_container_width=True):
+        if email_dest:
+            import requests
+            pdf_gen = PDFGenerator()
+            datos = {'area': m2_in, 'sistema': sistema_sel, 'cliente': cliente}
+            pdf_bytes = pdf_gen.generar_propuesta(cliente, datos, obra_gris_df, total_general)
+            
+            resend_api_key = os.environ.get("RESEND_API_KEY", "")
+            if resend_api_key:
+                try:
+                    b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+                    headers = {
+                        "Authorization": f"Bearer {resend_api_key}",
+                        "Content-Type": "application/json"
+                    }
+                    payload = {
+                        "from": "onboarding@resend.dev",
+                        "to": [email_dest],
+                        "subject": f"Presupuesto de Construcción - {cliente}",
+                        "html": f"<p>Hola {cliente},</p><p>Adjunto encontrará su presupuesto estimado para la construcción con sistema {sistema_sel}.</p>",
+                        "attachments": [
+                            {
+                                "filename": f"Presupuesto_{cliente}.pdf",
+                                "content": b64_pdf
+                            }
+                        ]
+                    }
+                    response = requests.post("https://api.resend.com/emails", json=payload, headers=headers)
+                    if response.status_code == 200:
+                        st.success("✅ Correo enviado exitosamente.")
+                    else:
+                        st.error(f"❌ Error al enviar: {response.text}")
+                except Exception as e:
+                    st.error(f"❌ Excepción: {e}")
+            else:
+                st.warning("⚠️ Falta configurar RESEND_API_KEY en las variables de entorno.")
+        else:
+            st.error("Por favor ingrese un correo válido.")
 
 
 def pagina_contacto():
