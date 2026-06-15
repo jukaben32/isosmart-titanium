@@ -12,6 +12,7 @@ except ImportError:
     npf = None  # Fallback si no está instalado
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+import streamlit as st
 
 
 @dataclass
@@ -213,7 +214,7 @@ class AnalisisFinanciero:
             obra_gris, obra_terminada = budget.calcular_presupuesto_completo(
                 m2=area,
                 sistema=f"Paneles {sistema}" if sistema != "icf" else "ICF Proform",
-                incluir_vigas=True,
+                usar_vigas_h=True,
                 calidad_terminados=calidad
             )
 
@@ -265,7 +266,7 @@ class AnalisisFinanciero:
         obra_gris_base, obra_terminada_base = budget.calcular_presupuesto_completo(
             m2=area_m2,
             sistema=f"Paneles {sistema}" if sistema != "icf" else "ICF Proform",
-            incluir_vigas=True,
+            usar_vigas_h=True,
             calidad_terminados="media"
         )
         costo_base = obra_gris_base['Subtotal'].sum() + obra_terminada_base['Subtotal'].sum()
@@ -360,11 +361,14 @@ class AnalisisFinanciero:
 
         for densidad in densidades:
             budget = BudgetCalculator()
+            
+            usar_vigas = st.session_state.get("usar_vigas_h", False)
+            sistema_act = st.session_state.get("sistema_seleccionado", "Paneles Isotex")
+            
             obra_gris = budget.calcular_obra_grisa(
                 m2=area_m2,
-                sistema="Paneles Isotex",
-                incluir_vigas=True,
-                densidad_panel=densidad
+                sistema=sistema_act,
+                usar_vigas_h=usar_vigas
             )
             obra_terminada = budget.calcular_obra_terminada(area_m2, area_m2 * 2.2, "media")
 
@@ -440,7 +444,7 @@ def calcular_costo_unitario_por_sistema(area_m2: float) -> Dict[str, Dict]:
         obra_gris, obra_terminada = budget.calcular_presupuesto_completo(
             m2=area_m2,
             sistema=sistema,
-            incluir_vigas=True,
+            usar_vigas_h=True,
             calidad_terminados="media"
         )
 

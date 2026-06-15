@@ -126,6 +126,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
+# INICIALIZACIÓN DE ESTADOS
+# ============================================================================
+for llave, valor_defecto in [
+    ("calc_area_m2", 120.0),
+    ("calc_perimetro_m", 45.0),
+    ("calc_niveles", 1),
+    ("calc_altura_muro_m", 2.80),
+    ("calc_espesor_muro_m", 0.12)
+]:
+    if llave not in st.session_state:
+        st.session_state[llave] = valor_defecto
+
+# ============================================================================
 # CLASES Y UTILIDADES
 # ============================================================================
 
@@ -237,8 +250,11 @@ class BudgetCalculator:
         return total_kg, total_barras
 
     @classmethod
-    def calcular_obra_grisa(cls, m2: float, sistema: str, incluir_vigas: bool = True) -> pd.DataFrame:
-        """Calcula costos de obra gris"""
+    def calcular_obra_grisa(cls, m2: float, sistema: str, usar_vigas_h: bool = False) -> pd.DataFrame:
+        """
+        Calcula costos de obra gris optimizados paramétricamente por peso propio del sistema
+        y con soporte opcional para pórticos de acero en Vigas H.
+        """
         precios = cls.PRECIOS_BASE
         area_muros = cls.calcular_area_muros(m2)
         area_techo = cls.calcular_area_techo(m2)
@@ -246,13 +262,89 @@ class BudgetCalculator:
 
         data = []
 
+        # =========================================================================
+        # 1. CIMENTACIÓN DINÁMICA POR CARGA MUERTA (PESO ESTRUCTURAL)
+        # =========================================================================
+        # Los sistemas EPS/ICF con Vigas H alivian la zapata/platea por reducción de peso propio.
+        if usar_vigas_h:
+            factor_cimentacion = 0.11  # m³ de hormigón por m² construido (Estructura muy ligera)
+            cuantia_acero_cimentacion = 45 # kg de acero por m³ de hormigón
+        elif sistema == "Paneles Isotex":
+            factor_cimentacion = 0.13  # Estructura ligera estándar
+            cuantia_acero_cimentacion = 55
+        elif sistema == "ICF":
+            factor_cimentacion = 0.14  # Peso intermedio por núcleo de concreto
+            cuantia_acero_cimentacion = 60
+        else:
+            factor_cimentacion = 0.16  # Construcción tradicional (Bloque pesado de 6" lleno)
+            cuantia_acero_cimentacion = 75
+
+        # Factor corrector por niveles (ajuste de seguridad estructural)
+        niveles = st.session_state.get("plan_niveles", 1)
+        if niveles > 1:
+            factor_cimentacion *= (1 + (niveles - 1) * 0.35)
+
+        vol_cimentacion = m2 * factor_cimentacion
+
+        data.append({
+            "Categoria": "Cimentación",
+            "Material": f"Cimentación Armada ({sistema})",
+            "Detalle": f"Plateas/Zapatas optimizadas para {niveles} nivel(es). Suelo estándar RD.",
+            "Cantidad": round(vol_cimentacion, 2),
+            "Unidad": "m³",
+            "P_Unitario": precios["H_3000_PSI"],
+            "Subtotal": vol_cimentacion * precios["H_3000_PSI"]
+        })
+
+        # Acero estructural de la cimentación
+        kg_acero_cemento = vol_cimentacion * cuantia_acero_cimentacion
+        data.append({
+            "Categoria": "Acero",
+            "Material": "Acero de Refuerzo (Cimientos)",
+            "Detalle": "Varillas corrugadas comerciales para parrilla de platea/zapata",
+            "Cantidad": round(kg_acero_cemento, 2),
+            "Unidad": "kg",
+            "P_Unitario": precios["Acero_Varilla"],
+            "Subtotal": kg_acero_cemento * precios["Acero_Varilla"]
+        })
+
+        # =========================================================================
+        # 2. COLUMNAS Y VIGAS DE AMARRE (Hormigón vs Estructura Metálica Opcional)
+        # =========================================================================
+        if usar_vigas_h:
+            # Alternativa portante de alta velocidad de ejecución
+            kg_vigas = m2 * 25
+            data.append({
+                "Categoria": "Estructura Metálica",
+                "Material": "Vigas H Estructurales",
+                "Detalle": "Perfil de acero estructural A36 para columnas y vigas pórtico",
+                "Cantidad": round(kg_vigas, 2),
+                "Unidad": "kg",
+                "P_Unitario": precios["Viga_H_kg"],
+                "Subtotal": kg_vigas * precios["Viga_H_kg"]
+            })
+        else:
+            # Amarres convencionales de hormigón requeridos para confinar muros EPS o ICF
+            vol_amarres_hormigon = m2 * 0.04
+            data.append({
+                "Categoria": "Estructura Confinada",
+                "Material": "Hormigón para Vigas y Columnas de Amarre",
+                "Detalle": "Vaciado de sanchos, columnas de amarre y vigas de corona dintel",
+                "Cantidad": round(vol_amarres_hormigon, 2),
+                "Unidad": "m³",
+                "P_Unitario": precios["H_3000_PSI"],
+                "Subtotal": vol_amarres_hormigon * precios["H_3000_PSI"]
+            })
+
+        # =========================================================================
+        # 3. CERRAMIENTOS Y ELEMENTOS MODULARES
+        # =========================================================================
         if sistema == "Paneles Isotex":
-            # Paneles
             total_muros = area_muros * (1 + desperdicio)
             data.append({
                 "Categoria": "Estructura",
                 "Material": "Paneles Isotex (Muros)",
-                "Detalle": "Panel estructural EPS con malla electrosoldada",
+                "Detalle": "Panel estructural EPS con malla electrosoldada bidireccional",
                 "Cantidad": round(total_muros, 2),
                 "Unidad": "m²",
                 "P_Unitario": precios["Panel_Muro"],
@@ -263,80 +355,54 @@ class BudgetCalculator:
             data.append({
                 "Categoria": "Estructura",
                 "Material": "Paneles Isotex (Techo)",
-                "Detalle": "Panel aligerado para losa",
+                "Detalle": "Panel aligerado EPS para losa de entrepiso o techo",
                 "Cantidad": round(total_techo, 2),
                 "Unidad": "m²",
                 "P_Unitario": precios["Panel_Techo"],
                 "Subtotal": total_techo * precios["Panel_Techo"]
             })
 
-            # Hormigón
+            # Microconcreto / Mortero estructural proyectado
             vol_hormigon = cls.calcular_volumen_hormigon(area_muros + area_techo)
-            # Nota: el desperdicio debe incrementar el volumen, no reducirlo.
             vol_hormigon *= (1 + cls.FACTORES_RENDIMIENTO["desperdicio_hormigon"])
             data.append({
                 "Categoria": "Hormigón",
                 "Material": "Hormigón Cemex 3000 PSI",
-                "Detalle": "Concreto premezclado para llenado",
+                "Detalle": "Mortero/Concreto premezclado para lanzado y llenado de paneles",
                 "Cantidad": round(vol_hormigon, 2),
                 "Unidad": "m³",
                 "P_Unitario": precios["H_3000_PSI"],
                 "Subtotal": vol_hormigon * precios["H_3000_PSI"]
             })
 
-        else:  # ICF
+        else:  # Sistema ICF
             data.append({
                 "Categoria": "Estructura",
                 "Material": "Bloques ICF Proform",
-                "Detalle": "Bloques de poliestireno para encofrado",
+                "Detalle": "Bloques de poliestireno expandido de alta densidad para encofrado perdido",
                 "Cantidad": round(area_muros * 0.85, 2),
                 "Unidad": "m²",
                 "P_Unitario": precios["Panel_Muro"] * 1.15,
                 "Subtotal": area_muros * 0.85 * precios["Panel_Muro"] * 1.15
             })
 
-            vol_hormigon = area_muros * 0.15
+            vol_hormigon = area_muros * 0.15  # Espesor núcleo interno estándar (15 cm)
             data.append({
                 "Categoria": "Hormigón",
                 "Material": "Hormigón Cemex 3500 PSI",
-                "Detalle": "Concreto de alta resistencia para ICF",
+                "Detalle": "Concreto de alta resistencia y fluidez para llenado de núcleo ICF",
                 "Cantidad": round(vol_hormigon, 2),
                 "Unidad": "m³",
                 "P_Unitario": precios["H_3500_PSI"],
                 "Subtotal": vol_hormigon * precios["H_3500_PSI"]
             })
 
-        # Cimentación (estimada)
-        vol_cimentacion = m2 * 0.15  # 0.15 m³ por m² de construcción
-        data.append({
-            "Categoria": "Cimentación",
-            "Material": "Cimentación Armada",
-            "Detalle": "Zapatas y vigas de fundación",
-            "Cantidad": round(vol_cimentacion, 2),
-            "Unidad": "m³",
-            "P_Unitario": precios["H_3000_PSI"] * 1.2,  # Incluye acero adicional
-            "Subtotal": vol_cimentacion * precios["H_3000_PSI"] * 1.2
-        })
-
-        # Vigas estructurales
-        if incluir_vigas:
-            kg_vigas = m2 * 25
-            data.append({
-                "Categoria": "Acero",
-                "Material": "Vigas H Estructurales",
-                "Detalle": "Perfil de acero A36 para estructura",
-                "Cantidad": round(kg_vigas, 2),
-                "Unidad": "kg",
-                "P_Unitario": precios["Viga_H_kg"],
-                "Subtotal": kg_vigas * precios["Viga_H_kg"]
-            })
-
-        # Acero de refuerzo
+        # Acero de refuerzo comercial e idóneo para el cuerpo estructural general
         kg_acero, barras = cls.calcular_acero_refuerzo(m2)
         data.append({
             "Categoria": "Acero",
-            "Material": "Acero de Refuerzo",
-            "Detalle": f"Varillas corrugadas (~{int(barras)} barras)",
+            "Material": "Acero de Refuerzo Comercial",
+            "Detalle": f"Varillas de amarre estructural y bastones (~{int(barras)} barras de 3/8 y 1/2)",
             "Cantidad": round(kg_acero, 2),
             "Unidad": "kg",
             "P_Unitario": precios["Acero_Varilla"],
@@ -446,33 +512,46 @@ class BudgetCalculator:
         return pd.DataFrame(data)
 
     @classmethod
-    def calcular_presupuesto_completo(cls, m2: float, sistema: str, incluir_vigas: bool = True,
+    def calcular_presupuesto_completo(cls, m2: float, sistema: str, usar_vigas_h: bool = False,
                                       calidad_terminados: str = "media") -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Retorna presupuesto de obra gris y obra terminada"""
-        obra_gris = cls.calcular_obra_grisa(m2, sistema, incluir_vigas)
+        obra_gris = cls.calcular_obra_grisa(m2, sistema, usar_vigas_h)
         area_muros = cls.calcular_area_muros(m2)
         obra_terminada = cls.calcular_obra_terminada(m2, area_muros, calidad_terminados)
         return obra_gris, obra_terminada
 
     @classmethod
     def comparar_sistemas(cls, m2: float) -> Dict:
-        """Compara Isotex vs Construcción Tradicional"""
-        # Costos Isotex
-        isotex_gris, isotex_term = cls.calcular_presupuesto_completo(m2, "Paneles Isotex")
-        total_isotex = isotex_gris['Subtotal'].sum() + isotex_term['Subtotal'].sum()
+        """
+        Compara el sistema innovador (Isotex/ICF) frente al modelo Tradicional Dominicano
+        parametrizado dinámicamente por costos reales de m² de construcción.
+        """
+        # Costos Punto A (Poliestireno - Tomando estados de interfaz)
+        usar_vigas = st.session_state.get("usar_vigas_h", False)
+        sistema_act = st.session_state.get("sistema_seleccionado", "Paneles Isotex")
+        calidad_act = st.session_state.get("calidad_terminados", "media")
+        
+        gris_iso, term_iso = cls.calcular_presupuesto_completo(m2, sistema_act, usar_vigas, calidad_act)
+        total_isotex = gris_iso['Subtotal'].sum() + term_iso['Subtotal'].sum()
 
-        # Costos Tradicional (estimado: 35-40% más caro en estructura)
-        tradicional_gris = m2 * 35000  # RD$ por m² obra gris tradicional
-        tradicional_term = m2 * 25000  # RD$ por m² obra terminada
+        # Matriz dinámica para Costo Real Tradicional RD según Clase Social / Calidad
+        matriz_tradicional = {
+            "economica": {"gris": 22000.00, "terminado": 16000.00},
+            "media":     {"gris": 35000.00, "terminado": 25000.00},
+            "alta":      {"gris": 52000.00, "terminado": 38000.00},
+            "lujo":      {"gris": 75000.00, "terminado": 60000.00}
+        }
+        
+        costos_trad = matriz_tradicional.get(calidad_act, matriz_tradicional["media"])
+        tradicional_gris = m2 * costos_trad["gris"]
+        tradicional_term = m2 * costos_trad["terminado"]
         total_tradicional = tradicional_gris + tradicional_term
 
-        # Tiempo de construcción
-        tiempo_isotex = m2 * 1.5  # días por m²
-        tiempo_tradicional = m2 * 2.5  # días por m²
-
-        # Ahorro de peso (Isotex pesa ~70% menos)
-        peso_tradicional = m2 * 800  # kg/m²
-        peso_isotex = m2 * 250  # kg/m²
+        # Indicadores de Rendimiento y Sustentabilidad
+        tiempo_isotex = m2 * (1.1 if usar_vigas else 1.5)
+        tiempo_tradicional = m2 * 2.5
+        peso_tradicional = m2 * 850
+        peso_isotex = m2 * (220 if sistema_act == "Paneles Isotex" else 380)
 
         return {
             'isotex': {
@@ -589,7 +668,7 @@ def initialize_gemini(api_key: str) -> Optional[any]:
         return None
     try:
         genai.configure(api_key=api_key)
-        return genai.GenerativeModel('gemini-pro')
+        return genai.GenerativeModel('gemini-1.5-flash')
     except Exception as e:
         st.error(f"Error configurando Gemini: {e}")
         return None
@@ -693,12 +772,14 @@ def render_text_design_assistant(context_key: str):
             st.session_state["plan_perimetro_m"] = float(params["perimetro_m"])
             st.session_state["plan_altura_muro_m"] = float(params["altura_muro_m"])
             st.session_state["plan_espesor_muro_m"] = float(params["espesor_muro_m"])
+            st.session_state["calidad_terminados"] = params.get("calidad_terminados", "media")
             st.session_state["plan_params"] = {
                 "area_m2": params["area_m2"],
                 "niveles": params["niveles"],
                 "perimetro_m": params["perimetro_m"],
                 "altura_muro_m": params["altura_muro_m"],
                 "espesor_muro_m": params["espesor_muro_m"],
+                "calidad_terminados": params.get("calidad_terminados", "media"),
                 "observaciones": params.get("observaciones", ""),
             }
             
@@ -1074,6 +1155,140 @@ def pagina_team():
         <br><strong>- Arq. María G., Santiago</strong>
     </div>
     """, unsafe_allow_html=True)
+# ============================================================================
+# PASO 1: INTEGRACIÓN DE CANVAS GEOMÉTRICO Y VISIÓN IA
+# ============================================================================
+
+def sincronizar_parametros_globales(datos: dict, origen: str):
+    """
+    Inyecta de forma segura las dimensiones detectadas o calculadas
+    en el session_state para que el calculador de presupuestos las use.
+    """
+    if not datos:
+        return
+
+    st.success(f"🔄 Parámetros actualizados automáticamente desde: **{origen}**")
+    
+    # Mapeo seguro con fallback para evitar sobreescritura con None
+    if datos.get("area_m2") is not None:
+        st.session_state["calc_area_m2"] = float(datos["area_m2"])
+    if datos.get("perimetro_m") is not None:
+        st.session_state["calc_perimetro_m"] = float(datos["perimetro_m"])
+    if datos.get("niveles") is not None:
+        st.session_state["calc_niveles"] = int(datos["niveles"])
+    if datos.get("altura_muro_m") is not None:
+        st.session_state["calc_altura_muro_m"] = float(datos["altura_muro_m"])
+    if datos.get("espesor_muro_m") is not None:
+        st.session_state["calc_espesor_muro_m"] = float(datos["espesor_muro_m"])
+
+
+def render_modulo_vision_y_canvas(modelo_gemini):
+    """
+    Pestaña interactiva de análisis de planos y dibujo geométrico.
+    """
+    st.subheader("📐 Extracción Geométrica Avanzada y Visión Artificial")
+    
+    col_izq, col_der = st.columns([1, 2])
+    
+    with col_izq:
+        st.markdown("### 🛠️ Cargar Documento")
+        archivo_plano = st.file_uploader(
+            "Sube el plano del proyecto (PDF o Imagen)", 
+            type=["png", "jpg", "jpeg", "pdf"],
+            key="uploader_planos"
+        )
+        
+        imagen_pil = None
+        if archivo_plano:
+            bytes_data = archivo_plano.read()
+            if archivo_plano.name.lower().endswith(".pdf"):
+                with st.spinner("📄 Convirtiendo primera página del PDF a imagen..."):
+                    imagen_pil = pdf_first_page_to_image(bytes_data, dpi=150)
+            else:
+                imagen_pil = Image.open(BytesIO(bytes_data)).convert("RGB")
+        
+        # Botón para activar análisis de Gemini 1.5
+        if imagen_pil and modelo_gemini:
+            if st.button("🧠 Analizar Estructura con Gemini IA", use_container_width=True):
+                with st.spinner("Consultando especificaciones del plano..."):
+                    # Forzamos las reglas e inferencia limpia
+                    data_json, raw_text = analyze_plan_image_with_gemini(modelo_gemini, imagen_pil)
+                    
+                    if data_json:
+                        st.json(data_json)
+                        sincronizar_parametros_globales(data_json, origen="Gemini Vision IA")
+                    else:
+                        st.warning("La IA no detectó cotas o escalas explícitas en el plano. Proceda con la calibración manual.")
+                        if raw_text:
+                            with st.expander("Ver diagnóstico crudo de la IA"):
+                                st.text(raw_text)
+
+    with col_der:
+        st.markdown("### ✏️ Calibración de Escala y Trazado de Polígonos")
+        
+        if imagen_pil:
+            if st_canvas is None:
+                st.error("El componente `streamlit-drawable-canvas` no está instalado.")
+                return
+                
+            st.caption("1. Dibuja una línea sobre una cota conocida para calibrar. 2. Traza el polígono perimetral.")
+            
+            col_cota1, col_cota2 = st.columns(2)
+            with col_cota1:
+                herramienta = st.selectbox("Herramienta", ["line", "polygon"], index=0, key="canvas_tool")
+            with col_cota2:
+                longitud_real_m = st.number_input("Longitud real de la línea de calibración (m)", min_value=0.1, value=1.0, step=0.5)
+
+            # Renderizado del lienzo interactivo
+            ancho_pantalla = 700
+            w, h = imagen_pil.size
+            alto_proporcional = int((ancho_pantalla / w) * h)
+            imagen_redimensionada = imagen_pil.resize((ancho_pantalla, alto_proporcional))
+
+            canvas_result = st_canvas(
+                fill_color="rgba(30, 60, 114, 0.3)",
+                stroke_width=3,
+                stroke_color="#1e3c72",
+                background_image=imagen_redimensionada,
+                height=alto_proporcional,
+                width=ancho_pantalla,
+                drawing_mode=herramienta,
+                key="canvas_planos",
+                update_streamlit=True
+            )
+
+            # Procesamiento matemático de las geometrías dibujadas
+            if canvas_result.json_data and "objects" in canvas_result.json_data:
+                objetos = canvas_result.json_data["objects"]
+                
+                # Calcular escala en metros/píxel (m/px) usando la primera línea dibujada
+                m_por_px = scale_from_canvas_line(objetos, longitud_real_m)
+                
+                if m_por_px:
+                    st.info(f"📐 Factor de escala calculado: **{m_por_px:.5f} m/px**")
+                    
+                    # Extraer el primer polígono dibujado por el usuario
+                    puntos_poligono = polygon_from_canvas(objetos)
+                    
+                    if puntos_poligono:
+                        area_px2, perimetro_px = polygon_area_perimeter(puntos_poligono)
+                        
+                        # Conversión métrica real usando el factor de escala
+                        area_m2_real = area_px2 * (m_por_px ** 2)
+                        perimetro_m_real = perimetro_px * m_por_px
+                        
+                        st.metric("Área Calculada (Shoelace)", f"{area_m2_real:.2f} m²")
+                        st.metric("Perímetro Calculado", f"{perimetro_m_real:.2f} m")
+                        
+                        # Guardar temporalmente en un botón para confirmación del ingeniero
+                        if st.button("📥 Aplicar Mediciones del Canvas al Presupuesto", use_container_width=True):
+                            datos_geometria = {
+                                "area_m2": area_m2_real,
+                                "perimetro_m": perimetro_m_real
+                            }
+                            sincronizar_parametros_globales(datos_geometria, origen="Trazado Geométrico Manual")
+        else:
+            st.info("Por favor, cargue un plano arquitectónico en el panel izquierdo para habilitar el Canvas de medición.")
 
 
 def pagina_calculadora():
@@ -1086,6 +1301,12 @@ def pagina_calculadora():
     </div>
     """, unsafe_allow_html=True)
 
+    api_key_default = get_gemini_api_key_from_config()
+    modelo_gemini = initialize_gemini(api_key_default)
+    render_modulo_vision_y_canvas(modelo_gemini)
+
+    st.divider()
+
     # Barra lateral de configuración
     with st.sidebar:
         st.markdown("### 📋 Datos del Proyecto")
@@ -1093,25 +1314,39 @@ def pagina_calculadora():
         text_design_params = st.session_state.get("text_design_params", DEFAULT_TEXT_DESIGN_PARAMS)
 
         cliente = st.text_input("👤 Nombre del Cliente", "Proyecto Residencial")
-        col1, col2 = st.columns(2)
-        with col1:
-            m2_in = st.number_input(
-                "📐 Área (m²)",
-                value=float(text_design_params.get("area_m2", 120.0)),
-                min_value=10.0,
-                max_value=10000.0,
-            )
-        with col2:
-            calidad = st.selectbox("🎨 Calidad Terminados",
-                                   ["económica", "media", "alta", "lujo"])
+        
+        area_default = st.session_state.get("calc_area_m2", float(text_design_params.get("area_m2", 120.0)))
+        m2_in = st.number_input(
+            "📐 Área (m²)",
+            value=area_default,
+            min_value=10.0,
+            max_value=10000.0,
+        )
+        st.session_state["calc_area_m2"] = m2_in
 
-        sistema_sel = st.selectbox(
-            "🏗️ Sistema Constructivo",
-            ["Paneles Isotex", "ICF Proform", "Vigas H + Cerramiento EPS", "Vigas H + Cerramiento ICF"],
-            help="Isotex: Paneles de EPS con malla. ICF: Encofrado aislante permanente"
+        st.subheader("Configuración Estructural del Proyecto")
+
+        sistema_seleccionado = st.selectbox(
+            "Sistema Constructivo de Cerramiento", 
+            ["Paneles Isotex", "ICF Proform"],
+            key="sistema_seleccionado"
         )
 
-        incluir_vigas = st.checkbox("Incluir Vigas H", value=True)
+        # Variable Opcional Clave Consensusada: Vigas H como alternativa recomendada
+        usar_vigas_h = st.toggle(
+            "💡 Incorporar Pórticos en Vigas H (Acero A36)",
+            value=False,
+            key="usar_vigas_h",
+            help="Habilita una estructura combinada de vigas de acero estructural con cerramientos de EPS. Incrementa velocidad de obra gris y reduce peso en cimientos."
+        )
+
+        calidad_terminados = st.select_slider(
+            "Clase Social / Nivel de Acabados",
+            options=["economica", "media", "alta", "lujo"],
+            value="media",
+            key="calidad_terminados",
+            format_func=lambda x: {"economica": "Baja (Económica)", "media": "Media (Residencial)", "alta": "Alta (Premium)", "lujo": "Lujo / Exclusivo"}[x]
+        )
 
         st.divider()
 
@@ -1169,9 +1404,9 @@ def pagina_calculadora():
             project_data = {
                 'cliente': cliente,
                 'area': m2_in,
-                'calidad': calidad,
-                'sistema': sistema_sel,
-                'opcion_vigas': incluir_vigas
+                'calidad': calidad_terminados,
+                'sistema': sistema_seleccionado,
+                'opcion_vigas': usar_vigas_h
             }
             project_id = hashlib.md5(f"{cliente}{datetime.now().isoformat()}".encode()).hexdigest()[:8]
             project_manager.save_project(project_id, project_data)
@@ -1183,9 +1418,9 @@ def pagina_calculadora():
     budget_calc = BudgetCalculator()
     obra_gris_df, obra_terminada_df = budget_calc.calcular_presupuesto_completo(
         m2=m2_in,
-        sistema=sistema_sel,
-        incluir_vigas=incluir_vigas,
-        calidad_terminados=calidad
+        sistema=sistema_seleccionado,
+        usar_vigas_h=usar_vigas_h,
+        calidad_terminados=calidad_terminados
     )
 
     total_obra_gris = obra_gris_df['Subtotal'].sum()

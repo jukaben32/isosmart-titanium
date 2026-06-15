@@ -321,7 +321,7 @@ def main():
     obra_gris, obra_terminada = budget.calcular_presupuesto_completo(
         m2=area,
         sistema=sistema,
-        incluir_vigas=True,
+        usar_vigas_h=True,
         calidad_terminados=calidad
     )
 

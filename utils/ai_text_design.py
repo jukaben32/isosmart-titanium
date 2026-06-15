@@ -11,7 +11,7 @@ DEFAULT_TEXT_DESIGN_PARAMS: Dict[str, Any] = {
     "perimetro_m": 44.0,
     "altura_muro_m": 2.8,
     "espesor_muro_m": 0.12,
-    "estilo_arquitectura": "Moderna",
+    "calidad_terminados": "media",
     "observaciones": "",
 }
 
@@ -104,9 +104,13 @@ def parse_text_design_response(raw_text: str) -> Optional[Dict[str, Any]]:
         _clamp(_to_float(data.get("espesor_muro_m"), params["espesor_muro_m"]), 0.08, 0.30),
         2,
     )
-    params["estilo_arquitectura"] = str(
-        data.get("estilo_arquitectura") or data.get("estilo") or params["estilo_arquitectura"]
-    ).strip()
+    params["calidad_terminados"] = str(
+        data.get("calidad_terminados") or params.get("calidad_terminados", "media")
+    ).strip().lower()
+    
+    if params["calidad_terminados"] not in ["economica", "media", "alta", "lujo"]:
+        params["calidad_terminados"] = "media"
+        
     params["observaciones"] = str(data.get("observaciones") or data.get("notas") or "").strip()
 
     return params
@@ -115,23 +119,30 @@ def parse_text_design_response(raw_text: str) -> Optional[Dict[str, Any]]:
 def build_text_design_prompt(descripcion: str) -> str:
     """Construye el prompt para pedirle a Gemini un JSON limpio y fácil de validar."""
     return f"""
-Eres un asistente técnico para presupuestos de viviendas con sistemas EPS/ICF en República Dominicana.
+Eres un ingeniero civil experto en optimización de planos y cubicación para el contexto de la República Dominicana.
+Tu tarea es analizar la descripción en lenguaje natural dada por el usuario y extraer un objeto JSON estricto.
 
 Analiza esta idea del cliente:
 \"\"\"{descripcion}\"\"\"
 
-Devuelve SOLO un JSON válido, sin markdown ni explicación adicional, con estas claves:
+Debes clasificar el proyecto dentro de una de las siguientes calidades de acabados ("economica", "media", "alta", "lujo")
+siguiendo estas reglas de negocio dominicanas:
+- Si el usuario menciona marquesinas simples, optimización de áreas o metrajes ajustados, clasifica como "economica".
+- Si describe marquesinas dobles, estar familiar o 2.5 baños, clasifica como "media".
+- Si describe cocinas frías/calientes, terrazas extensas, habitaciones con baños independientes o ubicaciones premium (Samaná, zonas turísticas de alta gama), clasifica como "alta" o "lujo".
+
+El JSON de salida debe tener obligatoriamente esta estructura:
 {{
-  "area_m2": number,
-  "niveles": integer,
-  "perimetro_m": number,
-  "altura_muro_m": number,
-  "espesor_muro_m": number,
-  "estilo_arquitectura": string,
+  "area_m2": float,
+  "niveles": int,
+  "perimetro_m": float,
+  "altura_muro_m": float,
+  "espesor_muro_m": float,
+  "calidad_terminados": "economica" | "media" | "alta" | "lujo",
   "observaciones": string
 }}
 
-Reglas:
+Reglas adicionales:
 - Si el cliente no da medidas exactas, estima valores residenciales razonables.
 - area_m2 debe ser el área total construida, incluyendo todos los niveles.
 - perimetro_m debe ser el perímetro aproximado de la planta principal.
