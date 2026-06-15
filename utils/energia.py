@@ -9,6 +9,9 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
+from utils.financiera import AnalisisFinancieroRD
+
+
 
 @dataclass
 class ResultadoAnalisisEnergetico:
@@ -140,15 +143,15 @@ class AnalisisEnergetico:
         horas_pico = cls.HORAS_PICO_DIA
         horas_fuera_pico = cls.HORAS_FUERA_PICO_DIA
 
-        # Simplificado:假设全部 en fuera de pico para cálculo base
-        consumo_mes_rd = consumo_mes_kwh * cls.COSTO_KWH
+        # Simplificado: asume estructura tarifaria dominicana escalonada BTS2
+        consumo_mes_rd = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_mes_kwh)
 
         return {
             'consumo_hora_kwh': round(consumo_hora_kwh, 3),
             'consumo_diario_kwh': round(consumo_diario_kwh, 2),
             'consumo_mensual_kwh': round(consumo_mes_kwh, 2),
             'consumo_mensual_rd': round(consumo_mes_rd, 2),
-            'costo_por_dia_rd': round(consumo_diario_kwh * cls.COSTO_KWH, 2)
+            'costo_por_dia_rd': round(consumo_mes_rd / dias_mes, 2)
         }
 
     @classmethod
@@ -304,7 +307,7 @@ class AnalisisEnergetico:
             'autoconsumo_pct': min(100, (num_paneles * energia_panel_mes_kwh / consumo_mensual) * 100),
             'costo_estimado_rd': round(costo_total, 2),
             'costo_por_panel_rd': round(costo_total / num_paneles, 2),
-            'ahorro_solar_mensual_rd': round(min(consumo_mensual, num_paneles * energia_panel_mes_kwh) * cls.COSTO_KWH, 2)
+            'ahorro_solar_mensual_rd': round(AnalisisFinancieroRD.calcular_costo_energia_rd(min(consumo_mensual, num_paneles * energia_panel_mes_kwh)), 2)
         }
 
     @classmethod
