@@ -186,40 +186,12 @@ class ProjectManager:
             write_json_atomic(self.storage_file, self.projects)
 
 
-class BudgetCalculator:
-    """Motor de cálculo de presupuestos con precios actualizables"""
+# ============================================================================
+# PASO 3: MOTOR DE CÁLCULO DILUIDO CON PRICEBOOK DINÁMICO
+# ============================================================================
 
-    PRECIOS_BASE = {
-        "Panel_Muro": 925.00,
-        "Panel_Techo": 1125.00,
-        "H_3000_PSI": 7350.00,
-        "H_3500_PSI": 7950.00,
-        "Viga_H_kg": 105.00,
-        "Acero_Varilla": 85.00,
-        "Malla_Electrosoldada": 450.00,
-        "Poliestireno_EPS": 2800.00,
-        "Fibra_Acero": 120.00,
-        "Aditivo_Impermeabilizante": 850.00,
-        # Obra gris adicional
-        "Cemento_Saco": 450.00,
-        "Arena_m3": 1200.00,
-        "Piedra_m3": 1100.00,
-        "Ladrillounidad": 28.00,
-        # Obra terminada
-        "Ceramica_m2": 450.00,
-        "Porcelanato_m2": 850.00,
-        "Pintura_galon": 1200.00,
-        "Yeso_saco": 180.00,
-        "Puerta_interior": 8500.00,
-        "Ventana_aluminio_m2": 4500.00,
-        "Griferia_bano": 3500.00,
-        "Inodoro": 4200.00,
-        "Lavamanos": 2800.00,
-        "Ducha": 1800.00,
-        "Fregadero_cocina": 6500.00,
-        "Gabinete_cocina_ml": 12000.00,
-        "Meson_granito_ml": 18000.00,
-    }
+class BudgetCalculator:
+    """Motor de cálculo de presupuestos optimizado con precios dinámicos desde JSON"""
 
     FACTORES_RENDIMIENTO = {
         "desperdicio_panel": 0.05,
@@ -250,291 +222,166 @@ class BudgetCalculator:
         return total_kg, total_barras
 
     @classmethod
-    def calcular_obra_grisa(cls, m2: float, sistema: str, usar_vigas_h: bool = False) -> pd.DataFrame:
-        """
-        Calcula costos de obra gris optimizados paramétricamente por peso propio del sistema
-        y con soporte opcional para pórticos de acero en Vigas H.
-        """
-        precios = cls.PRECIOS_BASE
+    def calcular_obra_grisa(cls, m2: float, sistema: str, precios: dict, incluir_vigas: bool = True) -> pd.DataFrame:
+        """Calcula costos de obra gris utilizando el diccionario dinámico de precios"""
         area_muros = cls.calcular_area_muros(m2)
         area_techo = cls.calcular_area_techo(m2)
-        desperdicio = cls.FACTORES_RENDIMIENTO["desperdicio_panel"]
+        desperdicio_p = cls.FACTORES_RENDIMIENTO["desperdicio_panel"]
+        desperdicio_h = cls.FACTORES_RENDIMIENTO["desperdicio_hormigon"]
 
         data = []
 
-        # =========================================================================
-        # 1. CIMENTACIÓN DINÁMICA POR CARGA MUERTA (PESO ESTRUCTURAL)
-        # =========================================================================
-        # Los sistemas EPS/ICF con Vigas H alivian la zapata/platea por reducción de peso propio.
-        if usar_vigas_h:
-            factor_cimentacion = 0.11  # m³ de hormigón por m² construido (Estructura muy ligera)
-            cuantia_acero_cimentacion = 45 # kg de acero por m³ de hormigón
-        elif sistema == "Paneles Isotex":
-            factor_cimentacion = 0.13  # Estructura ligera estándar
-            cuantia_acero_cimentacion = 55
-        elif sistema == "ICF":
-            factor_cimentacion = 0.14  # Peso intermedio por núcleo de concreto
-            cuantia_acero_cimentacion = 60
-        else:
-            factor_cimentacion = 0.16  # Construcción tradicional (Bloque pesado de 6" lleno)
-            cuantia_acero_cimentacion = 75
-
-        # Factor corrector por niveles (ajuste de seguridad estructural)
-        niveles = st.session_state.get("plan_niveles", 1)
-        if niveles > 1:
-            factor_cimentacion *= (1 + (niveles - 1) * 0.35)
-
-        vol_cimentacion = m2 * factor_cimentacion
-
-        data.append({
-            "Categoria": "Cimentación",
-            "Material": f"Cimentación Armada ({sistema})",
-            "Detalle": f"Plateas/Zapatas optimizadas para {niveles} nivel(es). Suelo estándar RD.",
-            "Cantidad": round(vol_cimentacion, 2),
-            "Unidad": "m³",
-            "P_Unitario": precios["H_3000_PSI"],
-            "Subtotal": vol_cimentacion * precios["H_3000_PSI"]
-        })
-
-        # Acero estructural de la cimentación
-        kg_acero_cemento = vol_cimentacion * cuantia_acero_cimentacion
-        data.append({
-            "Categoria": "Acero",
-            "Material": "Acero de Refuerzo (Cimientos)",
-            "Detalle": "Varillas corrugadas comerciales para parrilla de platea/zapata",
-            "Cantidad": round(kg_acero_cemento, 2),
-            "Unidad": "kg",
-            "P_Unitario": precios["Acero_Varilla"],
-            "Subtotal": kg_acero_cemento * precios["Acero_Varilla"]
-        })
-
-        # =========================================================================
-        # 2. COLUMNAS Y VIGAS DE AMARRE (Hormigón vs Estructura Metálica Opcional)
-        # =========================================================================
-        if usar_vigas_h:
-            # Alternativa portante de alta velocidad de ejecución
-            kg_vigas = m2 * 25
-            data.append({
-                "Categoria": "Estructura Metálica",
-                "Material": "Vigas H Estructurales",
-                "Detalle": "Perfil de acero estructural A36 para columnas y vigas pórtico",
-                "Cantidad": round(kg_vigas, 2),
-                "Unidad": "kg",
-                "P_Unitario": precios["Viga_H_kg"],
-                "Subtotal": kg_vigas * precios["Viga_H_kg"]
-            })
-        else:
-            # Amarres convencionales de hormigón requeridos para confinar muros EPS o ICF
-            vol_amarres_hormigon = m2 * 0.04
-            data.append({
-                "Categoria": "Estructura Confinada",
-                "Material": "Hormigón para Vigas y Columnas de Amarre",
-                "Detalle": "Vaciado de sanchos, columnas de amarre y vigas de corona dintel",
-                "Cantidad": round(vol_amarres_hormigon, 2),
-                "Unidad": "m³",
-                "P_Unitario": precios["H_3000_PSI"],
-                "Subtotal": vol_amarres_hormigon * precios["H_3000_PSI"]
-            })
-
-        # =========================================================================
-        # 3. CERRAMIENTOS Y ELEMENTOS MODULARES
-        # =========================================================================
         if sistema == "Paneles Isotex":
-            total_muros = area_muros * (1 + desperdicio)
+            total_muros = area_muros * (1 + desperdicio_p)
             data.append({
                 "Categoria": "Estructura",
                 "Material": "Paneles Isotex (Muros)",
-                "Detalle": "Panel estructural EPS con malla electrosoldada bidireccional",
+                "Detalle": "Panel estructural EPS con malla electrosoldada",
                 "Cantidad": round(total_muros, 2),
                 "Unidad": "m²",
-                "P_Unitario": precios["Panel_Muro"],
-                "Subtotal": total_muros * precios["Panel_Muro"]
+                "P_Unitario": precios.get("Panel_Muro", 925.0),
+                "Subtotal": total_muros * precios.get("Panel_Muro", 925.0)
             })
 
-            total_techo = area_techo * (1 + desperdicio)
+            total_techo = area_techo * (1 + desperdicio_p)
             data.append({
                 "Categoria": "Estructura",
                 "Material": "Paneles Isotex (Techo)",
-                "Detalle": "Panel aligerado EPS para losa de entrepiso o techo",
+                "Detalle": "Panel aligerado para losa",
                 "Cantidad": round(total_techo, 2),
                 "Unidad": "m²",
-                "P_Unitario": precios["Panel_Techo"],
-                "Subtotal": total_techo * precios["Panel_Techo"]
+                "P_Unitario": precios.get("Panel_Techo", 1125.0),
+                "Subtotal": total_techo * precios.get("Panel_Techo", 1125.0)
             })
 
-            # Microconcreto / Mortero estructural proyectado
+            # Corrección del bug silencioso: ahora usa desperdicio_h (0.08)
             vol_hormigon = cls.calcular_volumen_hormigon(area_muros + area_techo)
-            vol_hormigon *= (1 + cls.FACTORES_RENDIMIENTO["desperdicio_hormigon"])
+            vol_hormigon *= (1 + desperdicio_h)
             data.append({
                 "Categoria": "Hormigón",
                 "Material": "Hormigón Cemex 3000 PSI",
-                "Detalle": "Mortero/Concreto premezclado para lanzado y llenado de paneles",
+                "Detalle": "Concreto premezclado para llenado",
                 "Cantidad": round(vol_hormigon, 2),
                 "Unidad": "m³",
-                "P_Unitario": precios["H_3000_PSI"],
-                "Subtotal": vol_hormigon * precios["H_3000_PSI"]
+                "P_Unitario": precios.get("H_3000_PSI", 7350.0),
+                "Subtotal": vol_hormigon * precios.get("H_3000_PSI", 7350.0)
             })
 
-        else:  # Sistema ICF
+        else:  # ICF
             data.append({
                 "Categoria": "Estructura",
                 "Material": "Bloques ICF Proform",
-                "Detalle": "Bloques de poliestireno expandido de alta densidad para encofrado perdido",
+                "Detalle": "Bloques de poliestireno para encofrado",
                 "Cantidad": round(area_muros * 0.85, 2),
                 "Unidad": "m²",
-                "P_Unitario": precios["Panel_Muro"] * 1.15,
-                "Subtotal": area_muros * 0.85 * precios["Panel_Muro"] * 1.15
+                "P_Unitario": precios.get("Panel_Muro", 925.0) * 1.15,
+                "Subtotal": area_muros * 0.85 * (precios.get("Panel_Muro", 925.0) * 1.15)
             })
 
-            vol_hormigon = area_muros * 0.15  # Espesor núcleo interno estándar (15 cm)
+            vol_hormigon = area_muros * 0.15
             data.append({
                 "Categoria": "Hormigón",
                 "Material": "Hormigón Cemex 3500 PSI",
-                "Detalle": "Concreto de alta resistencia y fluidez para llenado de núcleo ICF",
+                "Detalle": "Concreto de alta resistencia para ICF",
                 "Cantidad": round(vol_hormigon, 2),
                 "Unidad": "m³",
-                "P_Unitario": precios["H_3500_PSI"],
-                "Subtotal": vol_hormigon * precios["H_3500_PSI"]
+                "P_Unitario": precios.get("H_3500_PSI", 7950.0),
+                "Subtotal": vol_hormigon * precios.get("H_3500_PSI", 7950.0)
             })
 
-        # Acero de refuerzo comercial e idóneo para el cuerpo estructural general
+        vol_cimentacion = m2 * 0.15
+        data.append({
+            "Categoria": "Cimentación",
+            "Material": "Cimentación Armada",
+            "Detalle": "Zapatas y vigas de fundación",
+            "Cantidad": round(vol_cimentacion, 2),
+            "Unidad": "m³",
+            "P_Unitario": precios.get("H_3000_PSI", 7350.0) * 1.2,
+            "Subtotal": vol_cimentacion * (precios.get("H_3000_PSI", 7350.0) * 1.2)
+        })
+
+        if incluir_vigas:
+            kg_vigas = m2 * 25
+            data.append({
+                "Categoria": "Acero",
+                "Material": "Vigas H Estructurales",
+                "Detalle": "Perfil de acero A36 para estructura",
+                "Cantidad": round(kg_vigas, 2),
+                "Unidad": "kg",
+                "P_Unitario": precios.get("Viga_H_kg", 105.0),
+                "Subtotal": kg_vigas * precios.get("Viga_H_kg", 105.0)
+            })
+
         kg_acero, barras = cls.calcular_acero_refuerzo(m2)
         data.append({
             "Categoria": "Acero",
-            "Material": "Acero de Refuerzo Comercial",
-            "Detalle": f"Varillas de amarre estructural y bastones (~{int(barras)} barras de 3/8 y 1/2)",
+            "Material": "Acero de Refuerzo",
+            "Detalle": f"Varillas corrugadas (~{int(barras)} barras)",
             "Cantidad": round(kg_acero, 2),
             "Unidad": "kg",
-            "P_Unitario": precios["Acero_Varilla"],
-            "Subtotal": kg_acero * precios["Acero_Varilla"]
+            "P_Unitario": precios.get("Acero_Varilla", 85.0),
+            "Subtotal": kg_acero * precios.get("Acero_Varilla", 85.0)
         })
 
         return pd.DataFrame(data)
 
     @classmethod
-    def calcular_obra_terminada(cls, m2: float, area_muros: float, calidad: str = "media") -> pd.DataFrame:
-        """Calcula costos de obra terminada"""
-        precios = cls.PRECIOS_BASE
-
-        # Factores según calidad
-        factores = {
-            "economica": 0.8,
-            "media": 1.0,
-            "alta": 1.5,
-            "lujo": 2.5
-        }
+    def calcular_obra_terminada(cls, m2: float, area_muros: float, precios: dict, calidad: str = "media") -> pd.DataFrame:
+        """Calcula costos de obra terminada utilizando el diccionario dinámico de precios"""
+        factores = {"economica": 0.8, "media": 1.0, "alta": 1.5, "lujo": 2.5}
         factor = factores.get(calidad, 1.0)
 
         data = []
-
-        # Pisos
-        area_piso = m2 * 0.9  # 90% del área tiene piso (el resto son muros)
+        area_piso = m2 * 0.9
         data.append({
             "Categoria": "Pisos",
             "Material": "Cerámica/Porcelanato",
-            "Detalle": f"Piso calidad {calidad} (incluye pegamento y fragüe)",
+            "Detalle": f"Piso calidad {calidad}",
             "Cantidad": round(area_piso, 2),
             "Unidad": "m²",
-            "P_Unitario": precios["Ceramica_m2"] * factor,
-            "Subtotal": area_piso * precios["Ceramica_m2"] * factor
+            "P_Unitario": precios.get("Ceramica_m2", 450.0) * factor,
+            "Subtotal": area_piso * precios.get("Ceramica_m2", 450.0) * factor
         })
 
-        # Pintura
-        galones_pintura = area_muros / 12  # 1 galón rinde ~12 m² (3 manos)
+        galones_pintura = area_muros / 12
         data.append({
             "Categoria": "Pintura",
             "Material": "Pintura Interior/Exterior",
-            "Detalle": "Pintura vinílica calidad premium (3 manos)",
+            "Detalle": "Pintura vinílica premium (3 manos)",
             "Cantidad": round(galones_pintura, 1),
             "Unidad": "gal",
-            "P_Unitario": precios["Pintura_galon"] * factor,
-            "Subtotal": galones_pintura * precios["Pintura_galon"] * factor
+            "P_Unitario": precios.get("Pintura_galon", 1200.0) * factor,
+            "Subtotal": galones_pintura * precios.get("Pintura_galon", 1200.0) * factor
         })
 
-        # Puertas
-        num_puertas = max(4, int(m2 / 15))  # 1 puerta cada ~15 m²
+        num_puertas = max(4, int(m2 / 15))
         data.append({
             "Categoria": "Carpintería",
             "Material": "Puertas Interiores",
-            "Detalle": f"{num_puertas} puertas de madera (incluye marcos y herrajes)",
+            "Detalle": f"{num_puertas} puertas de madera con marcos",
             "Cantidad": num_puertas,
             "Unidad": "ud",
-            "P_Unitario": precios["Puerta_interior"],
-            "Subtotal": num_puertas * precios["Puerta_interior"]
-        })
-
-        # Ventanas
-        area_ventanas = m2 * 0.15  # 15% del área en ventanas
-        data.append({
-            "Categoria": "Carpintería",
-            "Material": "Ventanas de Aluminio",
-            "Detalle": "Ventanas con vidrio templado",
-            "Cantidad": round(area_ventanas, 1),
-            "Unidad": "m²",
-            "P_Unitario": precios["Ventana_aluminio_m2"],
-            "Subtotal": area_ventanas * precios["Ventana_aluminio_m2"]
-        })
-
-        # Baños (asumir 1 baño cada 30 m²)
-        num_banos = max(1, int(m2 / 30))
-        data.append({
-            "Categoria": "Baños",
-            "Material": "Equipamiento de Baños",
-            "Detalle": f"{num_banos} baños completos (inodoro, lavamanos, ducha, grifería)",
-            "Cantidad": num_banos,
-            "Unidad": "ud",
-            "P_Unitario": (precios["Inodoro"] + precios["Lavamanos"] + precios["Ducha"] + precios["Griferia_bano"]) * factor,
-            "Subtotal": num_banos * (precios["Inodoro"] + precios["Lavamanos"] + precios["Ducha"] + precios["Griferia_bano"]) * factor
-        })
-
-        # Cocina
-        ml_gabinete = max(3, m2 / 20)  # Metros lineales de gabinete
-        data.append({
-            "Categoria": "Cocina",
-            "Material": "Gabinetes de Cocina",
-            "Detalle": f"{ml_gabinete:.1f} metros lineales de gabinetes",
-            "Cantidad": round(ml_gabinete, 1),
-            "Unidad": "ml",
-            "P_Unitario": precios["Gabinete_cocina_ml"] * factor,
-            "Subtotal": ml_gabinete * precios["Gabinete_cocina_ml"] * factor
-        })
-
-        data.append({
-            "Categoria": "Cocina",
-            "Material": "Mesón de Granito",
-            "Detalle": "Mesón para cocina y baños",
-            "Cantidad": round(ml_gabinete * 0.6, 1),
-            "Unidad": "ml",
-            "P_Unitario": precios["Meson_granito_ml"],
-            "Subtotal": ml_gabinete * 0.6 * precios["Meson_granito_ml"]
+            "P_Unitario": precios.get("Puerta_interior", 8500.0),
+            "Subtotal": num_puertas * precios.get("Puerta_interior", 8500.0)
         })
 
         return pd.DataFrame(data)
 
     @classmethod
-    def calcular_presupuesto_completo(cls, m2: float, sistema: str, usar_vigas_h: bool = False,
-                                      calidad_terminados: str = "media") -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Retorna presupuesto de obra gris y obra terminada"""
-        obra_gris = cls.calcular_obra_grisa(m2, sistema, usar_vigas_h)
+    def calcular_presupuesto_completo(cls, m2: float, sistema: str, precios: dict, incluir_vigas: bool = True, calidad_terminados: str = "media") -> Tuple[pd.DataFrame, pd.DataFrame]:
+        obra_gris = cls.calcular_obra_grisa(m2, sistema, precios, incluir_vigas)
         area_muros = cls.calcular_area_muros(m2)
-        obra_terminada = cls.calcular_obra_terminada(m2, area_muros, calidad_terminados)
+        obra_terminada = cls.calcular_obra_terminada(m2, area_muros, precios, calidad_terminados)
         return obra_gris, obra_terminada
 
     @classmethod
-    def comparar_sistemas(cls, m2: float) -> Dict:
-        """
-        Compara el sistema innovador (Isotex/ICF) frente al modelo Tradicional Dominicano
-        parametrizado dinámicamente por costos reales de m² de construcción.
-        """
-        # Costos Punto A (Poliestireno - Tomando estados de interfaz)
-        usar_vigas = st.session_state.get("usar_vigas_h", False)
-        sistema_act = st.session_state.get("sistema_seleccionado", "Paneles Isotex")
-        calidad_act = st.session_state.get("calidad_terminados", "media")
-        
-        gris_iso, term_iso = cls.calcular_presupuesto_completo(m2, sistema_act, usar_vigas, calidad_act)
-        total_isotex = gris_iso['Subtotal'].sum() + term_iso['Subtotal'].sum()
+    def comparar_sistemas(cls, m2: float, precios: dict, sistema: str = "Paneles Isotex", usar_vigas: bool = False, calidad: str = "media") -> Dict:
+        """Compara Isotex vs Construcción Tradicional con precios dinámicos"""
+        # Costos Isotex
+        isotex_gris, isotex_term = cls.calcular_presupuesto_completo(m2, sistema, precios, usar_vigas, calidad)
+        total_isotex = isotex_gris['Subtotal'].sum() + isotex_term['Subtotal'].sum()
 
-        # Matriz dinámica para Costo Real Tradicional RD según Clase Social / Calidad
+        # Costos Tradicional (matriz dinámica según calidad)
         matriz_tradicional = {
             "economica": {"gris": 22000.00, "terminado": 16000.00},
             "media":     {"gris": 35000.00, "terminado": 25000.00},
@@ -542,16 +389,16 @@ class BudgetCalculator:
             "lujo":      {"gris": 75000.00, "terminado": 60000.00}
         }
         
-        costos_trad = matriz_tradicional.get(calidad_act, matriz_tradicional["media"])
+        costos_trad = matriz_tradicional.get(calidad, matriz_tradicional["media"])
         tradicional_gris = m2 * costos_trad["gris"]
         tradicional_term = m2 * costos_trad["terminado"]
         total_tradicional = tradicional_gris + tradicional_term
 
-        # Indicadores de Rendimiento y Sustentabilidad
+        # Indicadores de Rendimiento
         tiempo_isotex = m2 * (1.1 if usar_vigas else 1.5)
         tiempo_tradicional = m2 * 2.5
         peso_tradicional = m2 * 850
-        peso_isotex = m2 * (220 if sistema_act == "Paneles Isotex" else 380)
+        peso_isotex = m2 * (220 if sistema == "Paneles Isotex" else 380)
 
         return {
             'isotex': {
@@ -999,7 +846,10 @@ def pagina_inicio():
     </div>
     """, unsafe_allow_html=True)
 
-    comparacion = BudgetCalculator.comparar_sistemas(120)
+    # Carga precios para la comparación de demo
+    pricebook_demo = Pricebook(path=os.path.join("data", "pricebook.json"))
+    precios_demo = pricebook_demo.load()
+    comparacion = BudgetCalculator.comparar_sistemas(120, precios_demo)
 
     col_comp1, col_comp2, col_comp3 = st.columns(3)
 
@@ -1414,12 +1264,11 @@ def pagina_calculadora():
 
     # Calcular presupuestos
     # Inyecta el pricebook (editable) al motor de cálculo.
-    BudgetCalculator.PRECIOS_BASE = precios_actuales
-    budget_calc = BudgetCalculator()
-    obra_gris_df, obra_terminada_df = budget_calc.calcular_presupuesto_completo(
+    obra_gris_df, obra_terminada_df = BudgetCalculator.calcular_presupuesto_completo(
         m2=m2_in,
         sistema=sistema_seleccionado,
-        usar_vigas_h=usar_vigas_h,
+        precios=precios_actuales,
+        incluir_vigas=usar_vigas_h,
         calidad_terminados=calidad_terminados
     )
 
@@ -1454,7 +1303,7 @@ def pagina_calculadora():
         )
 
     with col_m4:
-        comparacion = budget_calc.comparar_sistemas(m2_in)
+        comparacion = BudgetCalculator.comparar_sistemas(m2_in, precios_actuales, sistema_seleccionado, usar_vigas_h, calidad_terminados)
         ahorro_pct = comparacion['ahorro']['porcentaje']
         st.metric(
             label="Ahorro vs Tradicional",
@@ -1507,7 +1356,7 @@ def pagina_calculadora():
     with tab_comp:
         st.markdown("##### Comparativa Isotex vs Tradicional")
 
-        comparacion = budget_calc.comparar_sistemas(m2_in)
+        comparacion = BudgetCalculator.comparar_sistemas(m2_in, precios_actuales, sistema_seleccionado, usar_vigas_h, calidad_terminados)
 
         col_c1, col_c2 = st.columns(2)
 
@@ -1724,6 +1573,78 @@ def pagina_contacto():
     # Mapa (placeholder)
     st.markdown("### 🗺️ Nuestra Ubicación")
     st.map([{"lat": 18.4861, "lon": -69.9312}])  # Santo Domingo
+
+
+def render_pestana_configuracion_precios():
+    """Pestaña administrativa para actualizar costos de materiales en tiempo real."""
+    st.subheader("⚙️ Panel de Control del Libro de Precios RD")
+    st.caption("Modifica los costos básicos del mercado dominicano. Los cambios afectarán los nuevos cálculos de presupuesto de forma inmediata.")
+
+    # Instanciación del Pricebook (Usa el tuyo propio de utils.pricebook)
+    ruta_preciobook = os.path.join("data", "pricebook.json")
+    
+    # Asegurar directorio data existente
+    os.makedirs("data", exist_ok=True)
+    
+    # Cargamos el estado actual
+    if "pricebook_obj" not in st.session_state:
+        # Si tu clase Pricebook requiere inicialización con dict, adaptamos:
+        st.session_state["pricebook_obj"] = Pricebook(ruta_preciobook)
+    
+    pb = st.session_state["pricebook_obj"]
+    
+    # Intentar leer los precios desde el archivo o usar fallback si está vacío
+    precios_actuales = pb.get_all_prices() if hasattr(pb, 'get_all_prices') else read_json(ruta_preciobook, default={})
+    
+    if not precios_actuales:
+        # Fallback de seguridad con tus datos por defecto si el JSON no existe
+        precios_actuales = {
+            "Panel_Muro": 925.00, "Panel_Techo": 1125.00, "H_3000_PSI": 7350.00,
+            "H_3500_PSI": 7950.00, "Viga_H_kg": 105.00, "Acero_Varilla": 85.00,
+            "Ceramica_m2": 450.00, "Pintura_galon": 1200.00, "Puerta_interior": 8500.00
+        }
+        write_json_atomic(ruta_preciobook, precios_actuales)
+
+    # UI dividida por categorías de insumos para que sea cómoda de leer
+    tab_cat1, tab_cat2 = st.tabs(["🏗️ Estructura y Obra Gris", "🎨 Terminaciones y Acabados"])
+    
+    nuevos_precios = precios_actuales.copy()
+    
+    with tab_cat1:
+        st.markdown("#### Materiales Base e Insumos Críticos")
+        col1, col2 = st.columns(2)
+        with col1:
+            nuevos_precios["Panel_Muro"] = st.number_input("Panel Isotex / Bloque Muro (RD$/m²)", min_value=1.0, value=float(precios_actuales.get("Panel_Muro", 925.0)))
+            nuevos_precios["Panel_Techo"] = st.number_input("Panel Isotex Losa / Techo (RD$/m²)", min_value=1.0, value=float(precios_actuales.get("Panel_Techo", 1125.0)))
+            nuevos_precios["Acero_Varilla"] = st.number_input("Acero de Varilla Corrugada (RD$/kg)", min_value=1.0, value=float(precios_actuales.get("Acero_Varilla", 85.0)))
+        with col2:
+            nuevos_precios["H_3000_PSI"] = st.number_input("Hormigón Premezclado 3000 PSI (RD$/m³)", min_value=1.0, value=float(precios_actuales.get("H_3000_PSI", 7350.0)))
+            nuevos_precios["H_3500_PSI"] = st.number_input("Hormigón Premezclado 3500 PSI (RD$/m³)", min_value=1.0, value=float(precios_actuales.get("H_3500_PSI", 7950.0)))
+            nuevos_precios["Viga_H_kg"] = st.number_input("Perfil de Acero Viga H (RD$/kg)", min_value=1.0, value=float(precios_actuales.get("Viga_H_kg", 105.0)))
+
+    with tab_cat2:
+        st.markdown("#### Elementos de Obra Terminada")
+        col3, col4 = st.columns(2)
+        with col3:
+            nuevos_precios["Ceramica_m2"] = st.number_input("Revestimiento Cerámica Base (RD$/m²)", min_value=1.0, value=float(precios_actuales.get("Ceramica_m2", 450.0)))
+            nuevos_precios["Pintura_galon"] = st.number_input("Pintura Vinílica Premium (RD$/galón)", min_value=1.0, value=float(precios_actuales.get("Pintura_galon", 1200.0)))
+        with col4:
+            nuevos_precios["Puerta_interior"] = st.number_input("Puerta Interior estándar con herraje (RD$/ud)", min_value=1.0, value=float(precios_actuales.get("Puerta_interior", 8500.0)))
+
+    st.markdown("---")
+    if st.button("💾 Guardar y Sincronizar Libro de Precios", use_container_width=True, type="primary"):
+        # Guardar de forma atómica usando tus utilitarios compartidos
+        if hasattr(pb, 'save_prices'):
+            pb.save_prices(nuevos_precios)
+        else:
+            write_json_atomic(ruta_preciobook, nuevos_precios)
+            
+        st.session_state["precios_sincronizados"] = nuevos_precios
+        st.success("¡Libro de precios actualizado con éxito! Los cambios se guardaron de forma segura en la base de datos atómica.")
+
+    # Guardamos siempre en session_state para que el calculador lo lea sin re-leer el disco cada segundo
+    if "precios_sincronizados" not in st.session_state:
+        st.session_state["precios_sincronizados"] = nuevos_precios
 
 
 def pagina_plano_estructura():
@@ -2189,7 +2110,7 @@ def main():
 
         menu = st.radio(
             "Navegación",
-            ["🏠 Inicio", "👷 Nuestro Team", "🧮 Calculadora", "📐 Plano → Estructura", "🧱 Visor BIM 3D", "📞 Contacto"],
+            ["🏠 Inicio", "👷 Nuestro Team", "🧮 Calculadora", "📐 Plano → Estructura", "🧱 Visor BIM 3D", "⚙️ Configuración de Precios", "📞 Contacto"],
             label_visibility="collapsed"
         )
 
@@ -2215,6 +2136,8 @@ def main():
         pagina_plano_estructura()
     elif menu == "🧱 Visor BIM 3D":
         pagina_visor_bim()
+    elif menu == "⚙️ Configuración de Precios":
+        render_pestana_configuracion_precios()
     elif menu == "📞 Contacto":
         pagina_contacto()
 
