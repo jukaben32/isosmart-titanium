@@ -44,6 +44,7 @@ class BudgetCalculator:
         incluir_vigas: bool = True,
         calidad_terminados: str = "media",
         espesor_muro_m: float = 0.12,
+        zona_riesgo: str = "Moderado (Base)",
     ) -> tuple:
         """
         Genera las dos tablas de presupuesto: obra gris y obra terminada.
@@ -61,8 +62,16 @@ class BudgetCalculator:
         """
         area_muros = m2 * 2.2
         area_techo = m2 * 1.10
-        d_panel = cls.FACTORES_RENDIMIENTO["desperdicio_panel"]
         d_hormigon = cls.FACTORES_RENDIMIENTO["desperdicio_hormigon"]
+
+        # ── Factores de Riesgo (Sismo / Huracán RD) ─────────────────────────
+        factor_acero = 1.0
+        factor_hormigon = 1.0
+        if "Alto" in zona_riesgo:
+            factor_acero = 1.20      # +20% acero por falla septentrional/suroeste
+            factor_hormigon = 1.10   # +10% espesor efectivo cimientos
+        elif "Muy Alto" in zona_riesgo:
+            factor_acero = 1.35      # +35% acero por ruta de huracanes / punta cana
 
         data_gris = []
 
@@ -125,7 +134,7 @@ class BudgetCalculator:
             })
 
         # ── Cimentaciones ───────────────────────────────────────────────────
-        vol_cim = m2 * 0.15
+        vol_cim = m2 * 0.15 * factor_hormigon
         data_gris.append({
             "Categoria": "Cimentación",
             "Material":  "Cimentación Armada",
@@ -136,7 +145,7 @@ class BudgetCalculator:
         })
 
         # ── Acero de refuerzo ───────────────────────────────────────────────
-        kg_acero = m2 * 8.5
+        kg_acero = m2 * 8.5 * factor_acero
         data_gris.append({
             "Categoria": "Acero",
             "Material":  "Acero de Refuerzo (Varillas)",

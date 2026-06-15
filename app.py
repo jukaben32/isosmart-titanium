@@ -1448,6 +1448,12 @@ def pagina_calculadora():
             format_func=lambda x: {"economica": "Baja (Económica)", "media": "Media (Residencial)", "alta": "Alta (Premium)", "lujo": "Lujo / Exclusivo"}[x]
         )
 
+        zona_riesgo = st.selectbox(
+            "🌪️ Zona de Riesgo Estructural (Sismo/Huracán RD)",
+            ["Moderado (Base)", "Alto (Falla Septentrional/Suroeste)", "Muy Alto (Ruta Huracanes Este)"],
+            help="Ajusta la densidad de acero y dimensionamiento de cimientos según el código sísmico y de vientos de la República Dominicana."
+        )
+
         st.divider()
 
         st.markdown("### 💲 Precios (Pricebook)")
@@ -1506,11 +1512,12 @@ def pagina_calculadora():
                 'area': m2_in,
                 'calidad': calidad_terminados,
                 'sistema': sistema_seleccionado,
-                'opcion_vigas': usar_vigas_h
+                'opcion_vigas': usar_vigas_h,
+                'zona_riesgo': zona_riesgo
             }
             project_id = hashlib.md5(f"{cliente}{datetime.now().isoformat()}".encode()).hexdigest()[:8]
             project_manager.save_project(project_id, project_data)
-            st.success("✅ Proyecto guardado")
+            st.success("✅ Proyecto guardado correctamente en la base de datos.")
 
     # Calcular presupuestos
     # Inyecta el pricebook (editable) al motor de cálculo.
@@ -1519,7 +1526,8 @@ def pagina_calculadora():
         sistema=sistema_seleccionado,
         precios=precios_actuales,
         incluir_vigas=usar_vigas_h,
-        calidad_terminados=calidad_terminados
+        calidad_terminados=calidad_terminados,
+        zona_riesgo=zona_riesgo
     )
 
     total_obra_gris = obra_gris_df['Subtotal'].sum()
