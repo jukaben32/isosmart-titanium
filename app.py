@@ -126,17 +126,72 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# INICIALIZACIÓN DE ESTADOS
+# INICIALIZACIÓN DE ESTADOS (PASO 1, 2 Y 3)
 # ============================================================================
-for llave, valor_defecto in [
-    ("calc_area_m2", 120.0),
-    ("calc_perimetro_m", 45.0),
-    ("calc_niveles", 1),
-    ("calc_altura_muro_m", 2.80),
-    ("calc_espesor_muro_m", 0.12)
-]:
-    if llave not in st.session_state:
-        st.session_state[llave] = valor_defecto
+
+# Variables de cálculo y planificación (Paso 1 y 2)
+_session_defaults = {
+    "calc_area_m2": 120.0,
+    "calc_perimetro_m": 45.0,
+    "calc_niveles": 1,
+    "calc_altura_muro_m": 2.80,
+    "calc_espesor_muro_m": 0.12,
+    "plan_area_m2": 120.0,
+    "plan_niveles": 1,
+    "plan_perimetro_m": 45.0,
+    "plan_altura_muro_m": 2.80,
+    "plan_espesor_muro_m": 0.12,
+}
+
+for _llave, _valor_defecto in _session_defaults.items():
+    if _llave not in st.session_state:
+        st.session_state[_llave] = _valor_defecto
+
+# Inicializar precios sincronizados (Paso 3)
+if "precios_sincronizados" not in st.session_state:
+    _ruta = os.path.join("data", "pricebook.json")
+    _precios_cargados = read_json(_ruta, default={})
+    if not _precios_cargados:
+        # Usar defaults si el archivo está vacío
+        _precios_cargados = {
+            "Panel_Muro": 925.00,
+            "Panel_Techo": 1125.00,
+            "H_3000_PSI": 7350.00,
+            "H_3500_PSI": 7950.00,
+            "Viga_H_kg": 105.00,
+            "Acero_Varilla": 85.00,
+            "Malla_Electrosoldada": 450.00,
+            "Poliestireno_EPS": 2800.00,
+            "Fibra_Acero": 120.00,
+            "Aditivo_Impermeabilizante": 850.00,
+            "Cemento_Saco": 450.00,
+            "Arena_m3": 1200.00,
+            "Piedra_m3": 1100.00,
+            "Ladrillo_unidad": 28.00,
+            "Ceramica_m2": 450.00,
+            "Porcelanato_m2": 850.00,
+            "Pintura_galon": 1200.00,
+            "Yeso_saco": 180.00,
+            "Puerta_interior": 8500.00,
+            "Ventana_aluminio_m2": 4500.00,
+            "Griferia_bano": 3500.00,
+            "Inodoro": 4200.00,
+            "Lavamanos": 2800.00,
+            "Ducha": 1800.00,
+            "Fregadero_cocina": 6500.00,
+            "Gabinete_cocina_ml": 12000.00,
+            "Meson_granito_ml": 18000.00,
+        }
+    st.session_state["precios_sincronizados"] = _precios_cargados
+
+# Inicializar objeto Pricebook
+if "pricebook_obj" not in st.session_state:
+    try:
+        _ruta = os.path.join("data", "pricebook.json")
+        st.session_state["pricebook_obj"] = Pricebook(_ruta)
+    except Exception as e:
+        st.warning(f"⚠️ No se pudo inicializar el módulo Pricebook: {e}")
+        st.session_state["pricebook_obj"] = None
 
 # ============================================================================
 # CLASES Y UTILIDADES
