@@ -38,7 +38,7 @@ from utils.pdf_utils import pdf_first_page_to_image
 from utils.catalog import Catalog
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
 from utils.ai_media import generate_facade_image_fal, generate_video_luma
-from utils.financiera import AnalisisFinanciero
+from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
 
 try:
     from streamlit_drawable_canvas import st_canvas
@@ -746,6 +746,174 @@ def calc_h_beams_kg(area_m2: float, perimetro_m: float, beam_spacing_m: float, k
         return 0.0
     total_len_m = max(0.0, float(perimetro_m)) + 2.0 * (float(area_m2) / float(beam_spacing_m))
     return max(0.0, total_len_m * float(kg_per_m))
+
+
+# ============================================================================
+# RENDERIZADO DEL ENTORNO WEB INTERACTIVO
+# ============================================================================
+
+def sincronizar_parametros_globales(datos: dict, origen: str):
+    """Sincroniza métricas extraídas (canvas o Gemini) al estado global de la sesión."""
+    if not datos:
+        return
+    st.success(f"🔄 Sincronizando métricas desde: {origen}")
+    if datos.get("area_m2"):
+        st.session_state["calc_area_m2"] = float(datos["area_m2"])
+    if datos.get("perimetro_m"):
+        st.session_state["calc_perimetro_m"] = float(datos["perimetro_m"])
+
+
+def render_integradora_vision_canvas(modelo_gemini):
+    """Pestaña: Extracción Geométrica Avanzada y Visión Artificial."""
+    st.subheader("📐 Extracción Geométrica Avanzada y Visión Artificial")
+    col_izq, col_der = st.columns([1, 2])
+
+    with col_izq:
+        st.markdown("### 🛠️ Cargar Documento")
+        archivo_plano = st.file_uploader(
+            "Sube plano (PDF o Imagen)",
+            type=["png", "jpg", "jpeg", "pdf"],
+            key="uploader_v4"
+        )
+
+        imagen_pil = None
+        if archivo_plano:
+            if archivo_plano.name.lower().endswith(".pdf"):
+                st.warning("Para planos en PDF, asegúrese de procesar la primera página vectorizada.")
+            else:
+                imagen_pil = Image.open(BytesIO(archivo_plano.read())).convert("RGB")
+
+        if imagen_pil and modelo_gemini:
+            if st.button("🧠 Analizar Estructura con Gemini IA", use_container_width=True):
+                data_json, _ = analyze_plan_image_with_gemini(modelo_gemini, imagen_pil)
+                if data_json:
+                    st.json(data_json)
+                    sincronizar_parametros_globales(data_json, "Gemini Vision API")
+                else:
+                    st.error("No se detectó una tabla de cotas legible en el gráfico.")
+
+    with col_der:
+        st.markdown("### ✏️ Calibración de Escala y Trazado de Polígonos")
+        if imagen_pil:
+            if st_canvas is None:
+                st.error("Instale streamlit-drawable-canvas")
+                return
+
+            col_h1, col_h2 = st.columns(2)
+            with col_h1:
+                herramienta = st.selectbox("Modo de Dibujo", ["line", "polygon"])
+            with col_h2:
+                dist_real = st.number_input("Dimensión conocida de la línea (m)", min_value=0.1, value=1.0)
+
+            # Ajuste dinámico de escala en pantalla
+            w, h = imagen_pil.size
+            ancho_ui = 680
+            alto_ui = int((ancho_ui / w) * h)
+            img_resize = imagen_pil.resize((ancho_ui, alto_ui))
+
+            canvas_out = st_canvas(
+                fill_color="rgba(30, 60, 114, 0.25)", stroke_width=3, stroke_color="#1e3c72",
+                background_image=img_resize, height=alto_ui, width=ancho_ui,
+                drawing_mode=herramienta, key="canvas_titanium"
+            )
+
+            if canvas_out.json_data and "objects" in canvas_out.json_data:
+                objs = canvas_out.json_data["objects"]
+                m_px = scale_from_canvas_line(objs, dist_real)
+                if m_px:
+                    st.caption(f"Factor de calibración: {m_px:.6f} m/px")
+                    path_poligono = polygon_from_canvas(objs)
+                    if path_poligono:
+                        a_px2, p_px = polygon_area_perimeter(path_poligono)
+                        real_a = a_px2 * (m_px ** 2)
+                        real_p = p_px * m_px
+
+                        st.metric("Área Calculada (Shoelace)", f"{real_a:.2f} m²")
+                        if st.button("📥 Aplicar Mediciones del Canvas al Presupuesto", use_container_width=True):
+                            sincronizar_parametros_globales(
+                                {"area_m2": real_a, "perimetro_m": real_p},
+                                "Canvas Interactivo"
+                            )
+
+
+def render_pestana_pricebook():
+    """Pestaña: Panel de Control del Libro de Precios RD."""
+    st.subheader("⚙️ Panel de Control del Libro de Precios RD")
+    ruta = os.path.join("data", "pricebook.json")
+    os.makedirs("data", exist_ok=True)
+
+    # Precios base por defecto (Costo Mercado Dominicano 2026)
+    precios = {
+        "Panel_Muro":     925.0,
+        "Panel_Techo":   1125.0,
+        "H_3000_PSI":    7350.0,
+        "H_3500_PSI":    7950.0,
+        "Viga_H_kg":      105.0,
+        "Acero_Varilla":   85.0,
+        "Ceramica_m2":    450.0,
+        "Pintura_galon": 1200.0,
+    }
+
+    if os.path.exists(ruta):
+        try:
+            with open(ruta, "r") as f:
+                precios.update(json.load(f))
+        except Exception:
+            pass
+
+    col1, col2 = st.columns(2)
+    with col1:
+        precios["Panel_Muro"]    = st.number_input("Costo Muro EPS (RD$/m²)",      value=float(precios["Panel_Muro"]))
+        precios["Panel_Techo"]   = st.number_input("Costo Techo EPS (RD$/m²)",     value=float(precios["Panel_Techo"]))
+        precios["H_3000_PSI"]    = st.number_input("Hormigón 3000 PSI (RD$/m³)",   value=float(precios["H_3000_PSI"]))
+    with col2:
+        precios["Acero_Varilla"] = st.number_input("Varilla de Acero (RD$/kg)",    value=float(precios["Acero_Varilla"]))
+        precios["Ceramica_m2"]   = st.number_input("Porcelanato/Cerámica (RD$/m²)", value=float(precios["Ceramica_m2"]))
+        precios["Pintura_galon"] = st.number_input("Pintura Insumo (RD$/gal)",     value=float(precios["Pintura_galon"]))
+
+    if st.button("💾 Guardar y Sincronizar Libro de Precios", use_container_width=True, type="primary"):
+        with open(ruta, "w") as f:
+            json.dump(precios, f, indent=4)
+        st.session_state["precios_sincronizados"] = precios
+        st.success("¡Libro de precios sincronizado en el archivo local de configuración!")
+
+    if st.session_state.get("precios_sincronizados") is None:
+        st.session_state["precios_sincronizados"] = precios
+
+
+def render_vista_presupuesto_y_roi():
+    """Pestaña: Análisis de Cotización & Retorno Energético."""
+    st.subheader("📊 Análisis de Cotización & Retorno Energético")
+    area   = st.session_state.get("calc_area_m2", 120.0)
+    precios = st.session_state.get("precios_sincronizados", {})
+
+    if not precios:
+        st.warning("Configure el libro de precios antes de procesar el presupuesto.")
+        return
+
+    st.markdown(f"#### 📐 Proyecto Actual Evaluado: **{area:.2f} m²**")
+
+    # Ejecutar cálculos de obra gris y acabados
+    df_gris, df_term = BudgetCalculator.calcular_presupuesto_completo(area, "Paneles Isotex", precios)
+
+    st.markdown("##### 🧱 Costos de Obra Gris Estructural")
+    st.dataframe(df_gris, use_container_width=True)
+
+    total_gris = df_gris["Subtotal"].sum()
+    st.metric("Total Neto Estructural", f"RD$ {total_gris:,.2f}")
+
+    # Retorno de Inversión Térmica con tarifa BTS2
+    st.divider()
+    st.markdown("#### ⚡ Simulación de Ahorro Eléctrico (Tarifa BTS2 - RD)")
+    horas = st.slider("Uso diario promedio del Aire Acondicionado (Horas)", 2.0, 24.0, 8.0)
+
+    roi = AnalisisFinancieroRD.simular_ahorro_termico(area, horas)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("Ahorro Mensual en Factura", f"RD$ {roi['ahorro_mensual_rds']:,.2f}")
+    with c2:
+        st.metric("Ahorro Anual Proyectado",   f"RD$ {roi['ahorro_anual_rds']:,.2f}")
 
 
 # ============================================================================
