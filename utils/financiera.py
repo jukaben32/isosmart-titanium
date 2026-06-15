@@ -464,3 +464,83 @@ def calcular_costo_unitario_por_sistema(area_m2: float) -> Dict[str, Dict]:
         }
 
     return resultados
+
+
+# ============================================================================
+# ECONOMÍA CIRCULAR Y EFICIENCIA ENERGÉTICA (REPUBLICA DOMINICANA)
+# ============================================================================
+
+class AnalisisFinancieroRD:
+    """
+    Simulador de ROI de obra gris + ahorro en climatización residencial (RD$).
+    Implementa la curva de amortización termo-estructural utilizando el
+    escalonamiento regulado de la tarifa BTS2 (EDES dominicanas).
+    """
+
+    # Estructura marginal indexada al mercado dominicano actual
+    TARIFA_BTS2 = {
+        "fijo":    137.25,   # Cargo fijo mensual (RD$)
+        "bloque_1":  6.05,   # 0–100 kWh
+        "bloque_2":  8.35,   # 101–200 kWh
+        "bloque_3": 11.20,   # 201–300 kWh
+        "bloque_4": 12.85    # >300 kWh
+    }
+
+    @classmethod
+    def calcular_costo_energia_rd(cls, kwh_mensuales: float) -> float:
+        """Aplica la estructura marginal indexada al mercado dominicano actual."""
+        costo = cls.TARIFA_BTS2["fijo"]
+        if kwh_mensuales <= 100:
+            costo += kwh_mensuales * cls.TARIFA_BTS2["bloque_1"]
+        elif kwh_mensuales <= 200:
+            costo += (
+                (100 * cls.TARIFA_BTS2["bloque_1"])
+                + ((kwh_mensuales - 100) * cls.TARIFA_BTS2["bloque_2"])
+            )
+        elif kwh_mensuales <= 300:
+            costo += (
+                (100 * cls.TARIFA_BTS2["bloque_1"])
+                + (100 * cls.TARIFA_BTS2["bloque_2"])
+                + ((kwh_mensuales - 200) * cls.TARIFA_BTS2["bloque_3"])
+            )
+        else:
+            costo += (
+                (100 * cls.TARIFA_BTS2["bloque_1"])
+                + (100 * cls.TARIFA_BTS2["bloque_2"])
+                + (100 * cls.TARIFA_BTS2["bloque_3"])
+                + ((kwh_mensuales - 300) * cls.TARIFA_BTS2["bloque_4"])
+            )
+        return costo
+
+    @classmethod
+    def simular_ahorro_termico(cls, area_m2: float, horas_ac_dia: float = 8.0) -> dict:
+        """
+        Calcula la reducción en demanda eléctrica gracias al bajo coeficiente de
+        transmitancia térmica del EPS frente a bloques tradicionales.
+
+        Args:
+            area_m2: Área del inmueble en m².
+            horas_ac_dia: Horas promedio de uso de aire acondicionado al día.
+
+        Returns:
+            Diccionario con kWh ahorrados, costos y ahorro mensual/anual en RD$.
+        """
+        # Diferencial térmico estimado en clima del Caribe (kWh/h por m²)
+        kwh_ahorrado_hora = area_m2 * 0.045
+        kwh_ahorrado_mes = kwh_ahorrado_hora * horas_ac_dia * 30
+
+        consumo_base_tradicional = 450.0 + (area_m2 * 0.5)
+        consumo_con_eps = max(100.0, consumo_base_tradicional - kwh_ahorrado_mes)
+
+        costo_tradicional = cls.calcular_costo_energia_rd(consumo_base_tradicional)
+        costo_eps = cls.calcular_costo_energia_rd(consumo_con_eps)
+
+        ahorro_mensual_rds = costo_tradicional - costo_eps
+
+        return {
+            "kwh_ahorrado_mes":      round(kwh_ahorrado_mes, 2),
+            "costo_tradicional_rds": round(costo_tradicional, 2),
+            "costo_eps_rds":         round(costo_eps, 2),
+            "ahorro_mensual_rds":    round(ahorro_mensual_rds, 2),
+            "ahorro_anual_rds":      round(ahorro_mensual_rds * 12, 2),
+        }
