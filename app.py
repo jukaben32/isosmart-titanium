@@ -780,7 +780,16 @@ def render_integradora_vision_canvas(modelo_gemini):
         imagen_pil = None
         if archivo_plano:
             if archivo_plano.name.lower().endswith(".pdf"):
-                st.warning("Para planos en PDF, asegúrese de procesar la primera página vectorizada.")
+                # Convertir primera página del PDF a imagen para el canvas
+                with st.spinner("Convirtiendo PDF a imagen..."):
+                    imagen_pil = pdf_first_page_to_image(archivo_plano.read(), dpi=150)
+                if imagen_pil is None:
+                    st.warning(
+                        "No se pudo convertir el PDF. "
+                        "Asegúrate de tener `PyMuPDF` instalado: `pip install pymupdf`"
+                    )
+                else:
+                    st.success("✅ PDF convertido correctamente — primera página lista para analizar.")
             else:
                 imagen_pil = Image.open(BytesIO(archivo_plano.read())).convert("RGB")
 
@@ -1643,6 +1652,15 @@ def pagina_calculadora():
     col_res2.metric("Monto a Financiar", f"RD$ {monto_financiar:,.0f}")
     col_res3.metric("Cuota Mensual Estimada", f"RD$ {resultado_fin['cuota_mensual']:,.0f}")
 
+    # Bloque WOW + Lead Capture
+    st.info("💡 **¿Listo para construir?** Déjanos tus datos y un asesor te contactará para llevar este proyecto a la realidad.")
+    with st.expander("📝 Solicitud de Asesoría"):
+        with st.form("lead_presupuesto"):
+            nombre_l = st.text_input("Nombre Completo")
+            celular_l = st.text_input("Celular")
+            if st.form_submit_button("Enviar Solicitud"):
+                st.success(f"Gracias {nombre_l}, te contactaremos pronto.")
+
     # Exportación
     st.divider()
     st.markdown("##### 📥 Exportar y Compartir")
@@ -1652,7 +1670,7 @@ def pagina_calculadora():
     with col_exp1:
         if st.button("📄 Generar PDF Completo", use_container_width=True):
             pdf_gen = PDFGenerator()
-            datos = {'area': m2_in, 'sistema': sistema_sel, 'cliente': cliente}
+            datos = {'area': m2_in, 'sistema': sistema_seleccionado, 'cliente': cliente}
             pdf_bytes = pdf_gen.generar_propuesta(cliente, datos, obra_gris_df, total_general)
             st.markdown(
                 create_download_link(pdf_bytes, f"Presupuesto_{cliente.replace(' ', '_')}.pdf"),
@@ -1661,7 +1679,15 @@ def pagina_calculadora():
 
     with col_exp2:
         from urllib.parse import quote
-        wa_text = f"Hola {cliente}, aquí está el resumen de su presupuesto de construcción:\nSistema: {sistema_sel}\nÁrea: {m2_in} m²\nCosto Total: RD$ {total_general:,.0f}\n"
+        wa_text = (
+            f"Hola, soy {cliente}.\n\n"
+            f"Solicito información sobre mi presupuesto:\n"
+            f"  📐 Sistema: {sistema_seleccionado}\n"
+            f"  📏 Área: {m2_in:.0f} m²\n"
+            f"  💰 Costo Total: RD$ {total_general:,.0f}\n"
+            f"  🏦 Cuota mensual estimada: RD$ {resultado_fin['cuota_mensual']:,.0f}\n\n"
+            f"Generado por IsoSmart Titanium."
+        )
         wa_url = f"https://api.whatsapp.com/send?text={quote(wa_text)}"
         st.markdown(
             f'<a href="{wa_url}" target="_blank">'
@@ -1694,7 +1720,7 @@ def pagina_calculadora():
         if email_dest:
             import requests
             pdf_gen = PDFGenerator()
-            datos = {'area': m2_in, 'sistema': sistema_sel, 'cliente': cliente}
+            datos = {'area': m2_in, 'sistema': sistema_seleccionado, 'cliente': cliente}
             pdf_bytes = pdf_gen.generar_propuesta(cliente, datos, obra_gris_df, total_general)
             
             resend_api_key = os.environ.get("RESEND_API_KEY", "")

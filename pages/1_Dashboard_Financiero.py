@@ -316,17 +316,22 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-    # Calcular datos base
-    budget = BudgetCalculator()
-    obra_gris, obra_terminada = budget.calcular_presupuesto_completo(
+    # Calcular datos base — se obtienen precios desde session_state o defaults
+    precios_dash = st.session_state.get("precios_sincronizados") or {
+        "Panel_Muro": 925.0, "Panel_Techo": 1125.0, "H_3000_PSI": 7350.0,
+        "H_3500_PSI": 7950.0, "Viga_H_kg": 105.0, "Acero_Varilla": 85.0,
+        "Ceramica_m2": 450.0, "Pintura_galon": 1200.0,
+    }
+    obra_gris, obra_terminada = BudgetCalculator.calcular_presupuesto_completo(
         m2=area,
         sistema=sistema,
-        usar_vigas_h=True,
+        precios=precios_dash,
+        incluir_vigas=True,
         calidad_terminados=calidad
     )
 
     total_isotex = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-    comparacion = budget.comparar_sistemas(area)
+    comparacion = BudgetCalculator.comparar_sistemas(area, precios_dash, sistema, False, calidad)
     total_tradicional = comparacion['tradicional']['costo_total']
 
     # Análisis ROI
@@ -609,9 +614,9 @@ def main():
     st.divider()
     st.markdown("""
     <div style="text-align: center; color: #666; font-size: 0.9rem;">
-        <p><strong>IsoSmart Titanium</strong> - Sistema de Análisis Financiero</p>
-        <p>Nota: Los cálculos son estimaciones basadas en precios promedio del mercado chileno.
-        Consulte con su proveedor para cotizaciones exactas.</p>
+        <p><strong>IsoSmart Titanium</strong> — Sistema de Análisis Financiero para la Construcción en República Dominicana</p>
+        <p>Los cálculos son estimaciones basadas en precios del mercado dominicano 2026.
+        Consulte con su proveedor para cotizaciones exactas. Tarifas eléctricas según EDES BTS2.</p>
     </div>
     """, unsafe_allow_html=True)
 

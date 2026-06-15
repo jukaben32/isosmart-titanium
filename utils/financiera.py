@@ -48,7 +48,8 @@ class AnalisisFinanciero:
     @classmethod
     def calcular_ahorro_energia_mensual(cls, area_m2: float, sistema: str = "isotex") -> Dict[str, float]:
         """
-        Calcula el ahorro energético mensual comparado con construcción tradicional
+        Calcula el ahorro energético mensual comparado con construcción tradicional.
+        Usa la tarifa BTS2 real de las EDES dominicanas (delegado a AnalisisFinancieroRD).
 
         Args:
             area_m2: Área de construcción en m²
@@ -57,25 +58,30 @@ class AnalisisFinanciero:
         Returns:
             Diccionario con consumo y ahorro mensual
         """
+        # Consumo tradicional: 45 kWh/m²/mes
+        consumo_trad_mes = area_m2 * cls.CONSUMO_AC_TRADICIONAL_KWH_M2
+
         if sistema.lower() == "tradicional":
-            consumo_mes = area_m2 * cls.CONSUMO_AC_TRADICIONAL_KWH_M2
+            costo = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_trad_mes)
             return {
-                "consumo_kwh_mes": consumo_mes,
-                "costo_mes_rd": consumo_mes * cls.COSTO_KWH_RD,
-                "ahorro_kwh_mes": 0,
-                "ahorro_rd_mes": 0
+                "consumo_kwh_mes": consumo_trad_mes,
+                "costo_mes_rd": costo,
+                "ahorro_kwh_mes": 0.0,
+                "ahorro_rd_mes": 0.0,
             }
 
-        # Para Isotex/ICF, el consumo es ~45% menor
-        factor_reduccion = 0.55  # 45% de reducción
-        consumo_mes_isotex = area_m2 * cls.CONSUMO_AC_TRADICIONAL_KWH_M2 * factor_reduccion
-        consumo_mes_tradicional = area_m2 * cls.CONSUMO_AC_TRADICIONAL_KWH_M2
+        # Isotex/ICF reduce consumo ~45%
+        factor_reduccion = 0.55
+        consumo_eps_mes = consumo_trad_mes * factor_reduccion
+
+        costo_trad = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_trad_mes)
+        costo_eps  = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_eps_mes)
 
         return {
-            "consumo_kwh_mes": consumo_mes_isotex,
-            "costo_mes_rd": consumo_mes_isotex * cls.COSTO_KWH_RD,
-            "ahorro_kwh_mes": consumo_mes_tradicional - consumo_mes_isotex,
-            "ahorro_rd_mes": (consumo_mes_tradicional - consumo_mes_isotex) * cls.COSTO_KWH_RD
+            "consumo_kwh_mes": round(consumo_eps_mes, 2),
+            "costo_mes_rd":    round(costo_eps, 2),
+            "ahorro_kwh_mes":  round(consumo_trad_mes - consumo_eps_mes, 2),
+            "ahorro_rd_mes":   round(costo_trad - costo_eps, 2),
         }
 
     @classmethod
@@ -477,14 +483,15 @@ class AnalisisFinancieroRD:
     escalonamiento regulado de la tarifa BTS2 (EDES dominicanas).
     """
 
-    # Estructura marginal indexada al mercado dominicano actual
+    # Estructura marginal indexada al mercado dominicano actual (2026)
     TARIFA_BTS2 = {
-        "fijo":    137.25,   # Cargo fijo mensual (RD$)
-        "bloque_1":  6.05,   # 0–100 kWh
-        "bloque_2":  8.35,   # 101–200 kWh
-        "bloque_3": 11.20,   # 201–300 kWh
-        "bloque_4": 12.85    # >300 kWh
+        "fijo":    145.00,   # Cargo fijo mensual (RD$)
+        "bloque_1":  7.20,   # 0–100 kWh
+        "bloque_2":  9.80,   # 101–200 kWh
+        "bloque_3": 13.50,   # 201–300 kWh
+        "bloque_4": 15.20    # >300 kWh
     }
+
 
     @classmethod
     def calcular_costo_energia_rd(cls, kwh_mensuales: float) -> float:
