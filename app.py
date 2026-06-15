@@ -39,6 +39,7 @@ from utils.catalog import Catalog
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
 from utils.ai_media import generate_facade_image_fal, generate_video_luma
 from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
+from utils.calculador import BudgetCalculator as BudgetCalculatorLite
 
 try:
     from streamlit_drawable_canvas import st_canvas
@@ -894,7 +895,7 @@ def render_vista_presupuesto_y_roi():
     st.markdown(f"#### 📐 Proyecto Actual Evaluado: **{area:.2f} m²**")
 
     # Ejecutar cálculos de obra gris y acabados
-    df_gris, df_term = BudgetCalculator.calcular_presupuesto_completo(area, "Paneles Isotex", precios)
+    df_gris, df_term = BudgetCalculatorLite.calcular_presupuesto_completo(area, "Paneles Isotex", precios)
 
     st.markdown("##### 🧱 Costos de Obra Gris Estructural")
     st.dataframe(df_gris, use_container_width=True)
@@ -915,6 +916,23 @@ def render_vista_presupuesto_y_roi():
     with c2:
         st.metric("Ahorro Anual Proyectado",   f"RD$ {roi['ahorro_anual_rds']:,.2f}")
 
+def pagina_panel_operativo():
+    """Panel Operativo que integra visión artificial, precios y ROI."""
+    st.title("🎛️ Panel Operativo")
+    st.markdown("Gestión integrada de cotizaciones, precios y visión geométrica.")
+    
+    t1, t2, t3 = st.tabs(["📐 Visión & Geometría", "⚙️ Libro de Precios", "📊 Presupuesto & ROI"])
+    
+    with t1:
+        api_key = get_gemini_api_key_from_config()
+        modelo = initialize_gemini(api_key)
+        render_integradora_vision_canvas(modelo)
+    
+    with t2:
+        render_pestana_pricebook()
+        
+    with t3:
+        render_vista_presupuesto_y_roi()
 
 # ============================================================================
 # PÁGINAS DE LA APLICACIÓN
@@ -2333,7 +2351,7 @@ def main():
 
         menu = st.radio(
             "Navegación",
-            ["🏠 Inicio", "👷 Nuestro Team", "🧮 Calculadora", "📐 Plano → Estructura", "🧱 Visor BIM 3D", "⚙️ Configuración de Precios", "📞 Contacto"],
+            ["🏠 Inicio", "👷 Nuestro Team", "🧮 Calculadora", "📐 Plano → Estructura", "🧱 Visor BIM 3D", "🎛️ Panel Operativo", "📞 Contacto"],
             label_visibility="collapsed"
         )
 
@@ -2359,8 +2377,8 @@ def main():
         pagina_plano_estructura()
     elif menu == "🧱 Visor BIM 3D":
         pagina_visor_bim()
-    elif menu == "⚙️ Configuración de Precios":
-        render_pestana_configuracion_precios()
+    elif menu == "🎛️ Panel Operativo":
+        pagina_panel_operativo()
     elif menu == "📞 Contacto":
         pagina_contacto()
 
