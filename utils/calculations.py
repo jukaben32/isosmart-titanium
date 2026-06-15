@@ -4,6 +4,7 @@ Módulo de cálculos avanzados para IsoSmart Titanium
 """
 
 import math
+import numpy as np
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
@@ -262,6 +263,65 @@ def calcular_costo_unitario_compuesto(materiales: Dict[str, Tuple[float, float]]
     for nombre, (cantidad, precio) in materiales.items():
         total += cantidad * precio
     return total
+
+
+# ============================================================================
+# MATEMÁTICA VECTORIAL & ESCALA (CANVAS)
+# ============================================================================
+
+def scale_from_canvas_line(objects: list, real_distance_m: float) -> float:
+    """Calcula el factor m/px basado en la primera línea de calibración dibujada."""
+    for obj in objects:
+        if obj.get("type") == "line":
+            x1, y1 = obj.get("x1"), obj.get("y1")
+            x2, y2 = obj.get("x2"), obj.get("y2")
+            pixel_dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+            if pixel_dist > 0:
+                return real_distance_m / pixel_dist
+    return None
+
+
+def polygon_from_canvas(objects: list) -> list:
+    """Extrae las coordenadas ordenadas del polígono dibujado."""
+    for obj in objects:
+        if obj.get("type") == "polygon":
+            return obj.get("path", [])
+    return []
+
+
+def polygon_area_perimeter(path: list) -> tuple:
+    """
+    Calcula el área usando el algoritmo de Shoelace (Gauss) 
+    y el perímetro sumando distancias euclidianas.
+    """
+    points = []
+    # Filtrar comandos SVG del path (ej: ['M', x, y, 'L', x, y...])
+    i = 0
+    while i < len(path):
+        if path[i] in ['M', 'L'] and i + 2 < len(path):
+            points.append((float(path[i+1]), float(path[i+2])))
+            i += 3
+        else:
+            i += 1
+
+    if not points:
+        return 0.0, 0.0
+
+    # Asegurar cierre del polígono
+    if points[0] != points[-1]:
+        points.append(points[0])
+
+    n = len(points)
+    area = 0.0
+    perimeter = 0.0
+
+    for i in range(n - 1):
+        x1, y1 = points[i]
+        x2, y2 = points[i+1]
+        area += (x1 * y2) - (x2 * y1)
+        perimeter += np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+
+    return abs(area) / 2.0, perimeter
 
 
 # ============================================================================
