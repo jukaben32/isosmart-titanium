@@ -16,6 +16,14 @@ from typing import Dict, List, Optional, Tuple
 import hashlib
 import time
 
+# Configuracion de la pagina (debe ser la PRIMERA llamada a Streamlit)
+st.set_page_config(
+    page_title="IsoSmart Titanium",
+    page_icon="🏗️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
 from utils.pricebook import Pricebook
 from utils.storage import list_dict_values, read_json, write_json_atomic
 from utils.gemini_plan import analyze_plan_image_with_gemini
