@@ -628,6 +628,16 @@ def render_pestana_configuracion_precios():
     st.subheader("⚙️ Panel de Control del Libro de Precios RD")
     st.caption("Modifica los costos básicos del mercado dominicano. Los cambios afectarán los nuevos cálculos de presupuesto de forma inmediata.")
 
+    # Aviso de referencia: los precios actuales son provisionales hasta
+    # confirmacion oficial de Isotex Dominicana (pendiente de lista de precios).
+    st.info(
+        "ℹ️ **Precios de referencia.** Los valores actuales son provisionales, "
+        "estimados a partir de referencias del mercado (Covintex MX/BR convertidos a RD$). "
+        "Pendiente de confirmación oficial de **Isotex Dominicana** "
+        "(info@grupoisotex.net). Actualiza aquí los precios reales en cuanto los tengas.",
+        icon="ℹ️",
+    )
+
     # Instanciación del Pricebook (Usa el tuyo propio de utils.pricebook)
     ruta_preciobook = os.path.join("data", "pricebook.json")
     
