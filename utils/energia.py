@@ -339,12 +339,18 @@ class AnalisisEnergetico:
         num_unidades = int(np.ceil(toneladas / 2))  # Máximo 2 toneladas por unidad para eficiencia
         btu_por_unidad = carga['carga_termica_btu_h'] / num_unidades
 
+        sugeridos = [e for e in equipos if e['btu'] <= btu_por_unidad * 1.2][:3]
+        # Si la carga es tan baja que ningún equipo del catálogo entra en el
+        # filtro (ej. áreas pequeñas bien aisladas), sugerir el equipo mínimo.
+        if not sugeridos:
+            sugeridos = [equipos[0]]
+
         return {
             'toneladas_recomendadas': round(toneladas, 2),
             'carga_termica_btu_h': carga['carga_termica_btu_h'],
             'num_unidades_recomendado': num_unidades,
             'btu_por_unidad': round(btu_por_unidad, 0),
-            'equipos_sugeridos': [e for e in equipos if e['btu'] <= btu_por_unidad * 1.2][:3]
+            'equipos_sugeridos': sugeridos
         }
 
     @classmethod
