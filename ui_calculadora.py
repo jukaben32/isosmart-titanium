@@ -591,17 +591,20 @@ def pagina_contacto():
         ### 📍 Información de Contacto
 
         **📞 Teléfono:**
-        809-XXX-XXXX
+        +809 561 5599
 
         **📧 Email:**
-        info@tuempresa.com
+        info@grupoisotex.net
 
         **📌 Ubicación:**
-        Santo Domingo, República Dominicana
+        Parque Industrial Duarte, Autopista Duarte Km 22 1/2, Santo Domingo
 
         **⏰ Horario:**
         Lunes - Viernes: 8:00 AM - 6:00 PM
         Sábados: 8:00 AM - 12:00 PM
+
+        **🌐 Web:**
+        [isotexdominicana.com](https://isotexdominicana.com/)
 
         ---
 

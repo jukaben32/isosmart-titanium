@@ -88,9 +88,9 @@ def pagina_team():
         <div class="team-card" style="text-align:center;">
             <div style="font-size:4rem;">📞</div>
             <h4>Contáctanos</h4>
-            <p><strong>Teléfono:</strong><br>809-XXX-XXXX</p>
-            <p><strong>Email:</strong><br>info@tuempresa.com</p>
-            <p><strong>Ubicación:</strong><br>Santo Domingo, RD</p>
+            <p><strong>Teléfono:</strong><br>+809 561 5599</p>
+            <p><strong>Email:</strong><br>info@grupoisotex.net</p>
+            <p><strong>Ubicación:</strong><br>Parque Industrial Duarte, Autopista Duarte Km 22 1/2, Santo Domingo, RD</p>
         </div>
         """, unsafe_allow_html=True)
 
