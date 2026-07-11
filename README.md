@@ -161,6 +161,24 @@ python tests/test_energia.py            # Consumo, ahorro, dimensionado AC
 - **Datos**: Pandas
 - **Almacenamiento**: JSON atómico con `write_json_atomic()`
 
+## 🚀 Despliegue en Streamlit Community Cloud
+
+La app está lista para desplegarse gratis en [Streamlit Community Cloud](https://streamlit.io/cloud):
+
+1. Sube este repositorio a tu GitHub (ya está en `jukaben32/isosmart-titanium`).
+2. En [share.streamlit.io](https://share.streamlit.io) (o el nuevo portal de Streamlit Cloud):
+   - **Repository**: `jukaben32/isosmart-titanium`
+   - **Branch**: `main`
+   - **Main file path**: `app.py`
+3. (Opcional) En *Advanced settings → Secrets*, agrega tu API key de Gemini para activar el asistente IA:
+   ```toml
+   GEMINI_API_KEY = "tu_api_key_aqui"
+   ```
+4. Deploy y listo. La app carga los precios desde `data/pricebook.json` automáticamente.
+
+> Nota: las funciones de IA (Gemini/Fal/Luma) requieren sus respectivas API keys.
+> Sin ellas la app funciona en modo presupuesto/visor; solo se desactivan las llamadas a IA.
+
 ## 📄 Licencia
 
 MIT License - ver archivo [LICENSE](LICENSE) para más detalles.

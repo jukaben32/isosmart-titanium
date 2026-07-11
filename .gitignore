@@ -1,39 +1,26 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-.venv
 *.egg-info/
-dist/
-build/
+.venv/
+venv/
+env/
 
-# Streamlit
-.streamlit/secrets.toml
+# Entorno y secretos (NUNCA subir)
+.env
+.env.*
+secrets.toml
 
-# IDE
+# Logs de Streamlit
+streamlit.err.log
+streamlit.out.log
+*.log
+
+# Editor / SO
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-
-# PDFs generados
-*.pdf
-!docs/
-
-# Credentials
-.env
-.env.local
-*credentials*
+# Temporal de verificacion Hermes
+hermes-verify-*.py
