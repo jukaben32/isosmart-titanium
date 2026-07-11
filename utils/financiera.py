@@ -12,7 +12,9 @@ except ImportError:
     npf = None  # Fallback si no está instalado
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
-import streamlit as st
+
+from utils.calculador import BudgetCalculator
+from utils.pricebook import DEFAULT_PRICEBOOK
 
 
 @dataclass
@@ -210,22 +212,23 @@ class AnalisisFinanciero:
         Returns:
             DataFrame con análisis de sensibilidad
         """
-        from app import BudgetCalculator
+        from utils.calculador import BudgetCalculator
 
         resultados = []
         areas = np.arange(area_min, area_max + paso, paso)
+        precios = DEFAULT_PRICEBOOK
 
         for area in areas:
-            budget = BudgetCalculator()
-            obra_gris, obra_terminada = budget.calcular_presupuesto_completo(
+            obra_gris, obra_terminada = BudgetCalculator.calcular_presupuesto_completo(
                 m2=area,
                 sistema=f"Paneles {sistema}" if sistema != "icf" else "ICF Proform",
-                usar_vigas_h=True,
+                precios=precios,
+                incluir_vigas=True,
                 calidad_terminados=calidad
             )
 
             total_isotex = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-            comparacion = budget.comparar_sistemas(area)
+            comparacion = BudgetCalculator.comparar_sistemas(area, precios)
             total_tradicional = comparacion['tradicional']['costo_total']
 
             costo_m2_isotex = total_isotex / area
@@ -263,16 +266,17 @@ class AnalisisFinanciero:
         if variacion_pct is None:
             variacion_pct = [-20, -10, 0, 10, 20]
 
-        from app import BudgetCalculator
+        from utils.calculador import BudgetCalculator
 
         resultados = []
-        budget = BudgetCalculator()
+        precios = DEFAULT_PRICEBOOK
 
         # Calcular baseline
-        obra_gris_base, obra_terminada_base = budget.calcular_presupuesto_completo(
+        obra_gris_base, obra_terminada_base = BudgetCalculator.calcular_presupuesto_completo(
             m2=area_m2,
             sistema=f"Paneles {sistema}" if sistema != "icf" else "ICF Proform",
-            usar_vigas_h=True,
+            precios=precios,
+            incluir_vigas=True,
             calidad_terminados="media"
         )
         costo_base = obra_gris_base['Subtotal'].sum() + obra_terminada_base['Subtotal'].sum()
@@ -350,36 +354,39 @@ class AnalisisFinanciero:
         return pd.DataFrame(datos)
 
     @classmethod
-    def comparar_financiero_densidades(cls, area_m2: float = 120) -> pd.DataFrame:
+    def comparar_financiero_densidades(cls, area_m2: float = 120,
+                                       sistema: str = "Paneles Isotex",
+                                       usar_vigas_h: bool = False) -> pd.DataFrame:
         """
         Compara financieramente las diferentes densidades de panel ISOTEX
 
         Args:
             area_m2: Área de construcción
+            sistema: Sistema constructivo ('Paneles Isotex' | 'ICF Proform')
+            usar_vigas_h: Si se incluyen vigas H estructurales
 
         Returns:
             DataFrame comparativo
         """
-        from app import BudgetCalculator
+        from utils.calculador import BudgetCalculator
 
+        precios = DEFAULT_PRICEBOOK
         densidades = ["15kg", "20kg", "25kg"]
         resultados = []
 
         for densidad in densidades:
-            budget = BudgetCalculator()
-            
-            usar_vigas = st.session_state.get("usar_vigas_h", False)
-            sistema_act = st.session_state.get("sistema_seleccionado", "Paneles Isotex")
-            
-            obra_gris = budget.calcular_obra_grisa(
+            obra_gris = BudgetCalculator.calcular_obra_grisa(
                 m2=area_m2,
-                sistema=sistema_act,
-                usar_vigas_h=usar_vigas
+                sistema=sistema,
+                precios=precios,
+                incluir_vigas=usar_vigas_h
             )
-            obra_terminada = budget.calcular_obra_terminada(area_m2, area_m2 * 2.2, "media")
+            obra_terminada = BudgetCalculator.calcular_obra_terminada(
+                area_m2, area_m2 * 2.2, precios, "media"
+            )
 
             total = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-            comparacion = budget.comparar_sistemas(area_m2)
+            comparacion = BudgetCalculator.comparar_sistemas(area_m2, precios)
 
             resultados.append({
                 'Densidad_Panel': densidad,
@@ -439,18 +446,19 @@ def calcular_costo_unitario_por_sistema(area_m2: float) -> Dict[str, Dict]:
     Returns:
         Diccionario con costos por sistema
     """
-    from app import BudgetCalculator
+    from utils.calculador import BudgetCalculator
 
-    budget = BudgetCalculator()
+    precios = DEFAULT_PRICEBOOK
     resultados = {}
 
     sistemas = ["Paneles Isotex", "ICF Proform"]
 
     for sistema in sistemas:
-        obra_gris, obra_terminada = budget.calcular_presupuesto_completo(
+        obra_gris, obra_terminada = BudgetCalculator.calcular_presupuesto_completo(
             m2=area_m2,
             sistema=sistema,
-            usar_vigas_h=True,
+            precios=precios,
+            incluir_vigas=True,
             calidad_terminados="media"
         )
 
