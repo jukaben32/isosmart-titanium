@@ -76,9 +76,13 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
 
 
 # ============================================================================
-# EXTRACTOR MULTIMODAL (GEMINI IA) — PROMPT OPTIMIZADO PARA EPS
-# ============================================================================
+import streamlit as st
 
+
+@st.cache_data(show_spinner=False, hash_funcs={
+    object: lambda _: "modelo_gemini",
+    Image.Image: lambda img: img.tobytes(),
+})
 def analyze_plan_image_with_gemini(
     model: Any,
     image: Image.Image,

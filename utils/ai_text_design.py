@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import streamlit as st
 from typing import Any, Dict, Optional, Tuple
 
 
@@ -153,6 +154,7 @@ Reglas adicionales:
 """
 
 
+@st.cache_data(show_spinner=False, hash_funcs={object: lambda _: "modelo_gemini"})
 def analyze_text_design_with_gemini(model: Any, descripcion: str) -> Tuple[Optional[Dict[str, Any]], str]:
     """Llama a Gemini y devuelve parámetros normalizados junto con la respuesta cruda."""
     prompt = build_text_design_prompt(descripcion)

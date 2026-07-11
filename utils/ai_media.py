@@ -2,8 +2,10 @@
 
 import requests
 import time
+import streamlit as st
 from typing import Optional, Dict, Any
 
+@st.cache_data(show_spinner=False)
 def generate_facade_image_fal(prompt: str, api_key: str) -> Optional[str]:
     """
     Llama a la API de Fal.ai (modelo Flux) para generar un render fotorrealista.
@@ -41,6 +43,7 @@ def generate_facade_image_fal(prompt: str, api_key: str) -> Optional[str]:
         
     return None
 
+@st.cache_data(show_spinner=False)
 def generate_video_luma(image_url: str, prompt: str, api_key: str) -> Optional[str]:
     """
     Llama a la API de Luma Dream Machine para generar un video cinematográfico 
