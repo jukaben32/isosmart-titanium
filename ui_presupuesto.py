@@ -2,6 +2,7 @@
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
 import os
 
+import pandas as pd
 import streamlit as st
 
 from ui_core import (
@@ -140,3 +141,130 @@ def pagina_panel_operativo():
 # PÁGINAS DE LA APLICACIÓN
 # ============================================================================
 
+
+
+# ============================================================================
+# PRESUPUESTO DETALLADO (motor QTO) — Fase 1 de la auditoría
+# ============================================================================
+
+def pagina_presupuesto_detallado():
+    """
+    Presupuesto por partidas con el motor `utils/qto.py`.
+
+    A diferencia de la calculadora clásica, esta vista:
+      - consume la geometría real (perímetro, altura, niveles) en vez de m²x2.2
+      - incluye mortero, mallas, anclas, instalaciones, acabados y mano de obra
+      - compara obra gris contra obra gris (27.5%), no gris contra terminada
+    """
+    from utils.geometria import Geometria
+    from utils.qto import MotorQTO
+
+    st.title("🧾 Presupuesto Detallado por Partidas")
+    st.caption(
+        "Motor basado en `docs/BASE_TECNICA_EPS_ICF.md`: espesores reales de mortero "
+        "(2.5 cm/cara), mallas, cimentación completa y mano de obra."
+    )
+
+    with st.sidebar:
+        st.markdown("### 📐 Geometría")
+        area = st.number_input("Área construida total (m²)", min_value=20.0, max_value=5000.0,
+                               value=float(st.session_state.get("calc_area_m2", 120.0)), step=10.0)
+        perimetro = st.number_input("Perímetro de planta (m)", min_value=0.0, max_value=1000.0,
+                                    value=float(st.session_state.get("calc_perimetro_m", 0.0) or 0.0),
+                                    step=1.0,
+                                    help="0 = estimar automáticamente con proporción 3:2")
+        altura = st.number_input("Altura de muro (m)", min_value=2.2, max_value=6.0,
+                                 value=float(st.session_state.get("calc_altura_muro_m", 2.8)), step=0.1)
+        niveles = st.number_input("Niveles", min_value=1, max_value=20,
+                                  value=int(st.session_state.get("calc_niveles", 1)))
+
+        st.markdown("### ⚙️ Configuración")
+        sistema = st.selectbox("Sistema", ["Paneles Isotex", "ICF Proform"])
+        calidad = st.selectbox("Calidad de terminados", ["economica", "media", "alta", "lujo"], index=1)
+        zona = st.selectbox("Zona de riesgo", ["Moderado (Base)", "Alto", "Muy Alto"])
+        lanzadora = st.checkbox("Aplanado con lanzadora neumática", value=False,
+                                help="60-70 m²/día frente a 15-20 m²/día manual")
+
+    geo = Geometria(
+        area_m2=area,
+        perimetro_m=perimetro or None,
+        altura_muro_m=altura,
+        niveles=int(niveles),
+    )
+    precios = st.session_state.get("precios_sincronizados") or Pricebook(
+        os.path.join("data", "pricebook.json")
+    ).load()
+
+    try:
+        motor = MotorQTO(geo, precios, sistema=sistema, calidad=calidad,
+                         zona_riesgo=zona, aplanado_mecanizado=lanzadora)
+        df = motor.presupuesto()
+    except (KeyError, ValueError) as e:
+        st.error(f"No se pudo calcular el presupuesto: {e}")
+        return
+
+    # -- métricas ---------------------------------------------------------
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total", f"RD$ {motor.total():,.0f}")
+    c2.metric("Costo por m²", f"RD$ {motor.costo_m2():,.0f}")
+    c3.metric("Obra gris", f"RD$ {motor.total_obra_gris():,.0f}")
+    c4.metric("Obra terminada", f"RD$ {motor.total_obra_terminada():,.0f}",
+              f"{motor.total_obra_terminada()/motor.total()*100:.0f}% del total")
+
+    # -- geometría derivada ----------------------------------------------
+    with st.expander("📐 Geometría derivada del proyecto", expanded=False):
+        st.caption(
+            "Estos valores ya alimentan el cálculo. Antes se extraían del plano "
+            "y no los leía nadie."
+        )
+        st.dataframe(pd.DataFrame([geo.resumen()]).T.rename(columns={0: "Valor"}),
+                     use_container_width=True)
+
+    # -- comparación gris vs gris ----------------------------------------
+    comp = motor.comparar_con_tradicional()
+    st.markdown("### ⚖️ Comparación con construcción tradicional")
+    st.info(
+        f"**Ahorro sobre obra gris: {comp['ahorro']['obra_gris_pct']:.1f}%** "
+        f"(rango documentado: {comp['rango_ahorro_gris'][0]:.0f}–{comp['rango_ahorro_gris'][1]:.0f}%). "
+        f"Sobre el **total** el ahorro es de **{comp['ahorro']['total_pct']:.1f}%**, "
+        f"porque los acabados son iguales en ambos sistemas. "
+        f"Ésta es la cifra que resiste una revisión técnica."
+    )
+    st.dataframe(pd.DataFrame({
+        "Concepto": ["Obra gris", "Obra terminada", "TOTAL", "RD$/m²", "Plazo (días)"],
+        "EPS / ICF": [comp["eps"]["obra_gris"], comp["eps"]["obra_terminada"],
+                      comp["eps"]["costo_total"], comp["eps"]["costo_m2"], comp["eps"]["dias"]],
+        "Tradicional": [comp["tradicional"]["obra_gris"], comp["tradicional"]["obra_terminada"],
+                        comp["tradicional"]["costo_total"], comp["tradicional"]["costo_m2"],
+                        comp["tradicional"]["dias"]],
+    }).style.format({"EPS / ICF": "{:,.0f}", "Tradicional": "{:,.0f}"}),
+        use_container_width=True)
+
+    # -- desglose ---------------------------------------------------------
+    st.markdown("### 📊 Desglose por categoría")
+    st.dataframe(motor.resumen_por_categoria(), use_container_width=True)
+
+    st.markdown("### 📋 Partidas")
+    st.dataframe(df, use_container_width=True, height=420)
+
+    # -- honestidad sobre los precios ------------------------------------
+    por_verificar = motor.partidas_por_verificar()
+    if not por_verificar.empty:
+        monto = por_verificar["subtotal"].sum()
+        st.warning(
+            f"⚠️ **{len(por_verificar)} partidas (RD$ {monto:,.0f}, "
+            f"{monto/motor.total()*100:.0f}% del presupuesto) usan precios de REFERENCIA**, "
+            "no cotizaciones de proveedor. Sustitúyelos antes de entregar este "
+            "presupuesto a un cliente."
+        )
+        with st.expander("Ver partidas con precio por verificar"):
+            st.dataframe(por_verificar, use_container_width=True)
+
+    # -- exportación ------------------------------------------------------
+    st.download_button(
+        "📥 Descargar presupuesto (CSV)",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name=f"presupuesto_{int(area)}m2.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )

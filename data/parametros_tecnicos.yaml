@@ -1,0 +1,152 @@
+# ===========================================================================
+# Parámetros técnicos del sistema EPS/ICF
+# ---------------------------------------------------------------------------
+# Fuente: docs/BASE_TECNICA_EPS_ICF.md (Covintec + notas del usuario, 2026-07).
+#
+# Las FÓRMULAS viven en utils/qto.py (son código). Los PARÁMETROS viven aquí
+# (son datos). Ajustar un espesor o un rendimiento no debe requerir tocar Python.
+#
+# Cada valor lleva su origen:
+#   [doc]      -> viene textualmente de BASE_TECNICA_EPS_ICF.md
+#   [supuesto] -> estimación de ingeniería, PENDIENTE de validar con obra real
+# ===========================================================================
+
+version: "1.0"
+fecha: "2026-07-26"
+
+# ---------------------------------------------------------------------------
+# Panel
+# ---------------------------------------------------------------------------
+panel:
+  ancho_util_m: 1.22          # [doc] panel estándar 1.22 x 2.44 m
+  largo_estandar_m: 2.44      # [doc]
+  largo_maximo_m: 6.10        # [doc] fabricable hasta 6.10 m
+
+# ---------------------------------------------------------------------------
+# Espesores de mortero y concreto
+# ---------------------------------------------------------------------------
+espesores:
+  mortero_muro_por_cara_m: 0.025   # [doc] 2.5 cm por cara (2 cm cubre malla + 1-1.5 acabado)
+  losa_azotea_m: 0.05              # [doc] capa de compresión 5 cm
+  losa_entrepiso_m: 0.065          # [doc] 6-7 cm
+  cimentacion_platea_m: 0.125      # [doc] losa de cimentación 10-15 cm
+  plantilla_concreto_pobre_m: 0.075  # [doc] plantilla 5-10 cm
+  replantillo_m: 0.135             # [doc] replantillo 12-15 cm en fondo de excavación
+
+# ---------------------------------------------------------------------------
+# Resistencias (kg/cm²)
+# ---------------------------------------------------------------------------
+resistencias:
+  losa_minima: 200          # [doc] mínimo en losa
+  microconcreto: 235        # [doc] 220-250
+  cimentacion: 250          # [doc] zapata/cimentación
+
+# ---------------------------------------------------------------------------
+# Rendimientos de mezcla
+# ---------------------------------------------------------------------------
+# [doc] Cemento 50 kg -> 138-148 L de concreto a 250 kg/cm². Se toma el punto medio.
+# [doc] Proporción 250: 1 bulto cemento : 3.5 botes arena : 5.5 botes grava (bote 19 L).
+mezclas:
+  bote_litros: 19
+  concreto:
+    rendimiento_m3_por_bulto: 0.143   # [doc] 143 L por bulto de 50 kg
+    botes_arena_por_bulto: 3.5        # [doc]
+    botes_grava_por_bulto: 5.5        # [doc]
+  mortero:
+    rendimiento_m3_por_bulto: 0.12    # [supuesto] VERIFICAR con proveedor
+    botes_arena_por_bulto: 7.0        # [doc] 1 bulto mortero : 7 botes arena
+  # [doc] Prohibido usar CAL (daña la malla de acero).
+  # [doc] Usar microfibra sintética + impermeabilizante integral.
+  aditivos:
+    microfibra_kg_por_bulto: 1.0      # [doc] 1 kg/bulto (2 kg en cisternas/albercas)
+
+# ---------------------------------------------------------------------------
+# Anclaje y mallas de refuerzo
+# ---------------------------------------------------------------------------
+anclaje:
+  anclas_por_panel: 3               # [doc] varilla 3/8", cada 40 cm, 3 por panel
+  separacion_m: 0.40                # [doc]
+  longitud_ancla_m: 0.60            # [supuesto] 5 cm dentro de cimentación + traslape
+  peso_varilla_3_8_kg_por_m: 0.56   # [supuesto] peso nominal varilla 3/8"
+
+mallas:
+  # [doc] ventana 90x90 = 12 piezas; puerta 215x90 = 13 piezas. AMBOS LADOS (x2).
+  zigzag_piezas_por_ventana: 12
+  zigzag_piezas_por_puerta: 13
+  zigzag_lados: 2
+  # [doc] malla esquinera: (nº esquinas x altura muro) / 2.40 m
+  esquinera_largo_pieza_m: 2.40
+  # [doc] malla unión: 10 cm x 2.40 m, ambos lados, en cortes de panel
+  union_largo_pieza_m: 2.40
+  union_lados: 2
+  union_fraccion_paneles_cortados: 0.25   # [supuesto] % de paneles que requieren corte
+  # Malla electrosoldada 10x10 en cimentación
+  electrosoldada_traslape: 1.10           # [supuesto] 10% de traslape
+
+# ---------------------------------------------------------------------------
+# Mano de obra
+# ---------------------------------------------------------------------------
+# [doc] Aplanado manual 15-20 m²/día; lanzadora neumática 60-70 m²/día.
+mano_obra:
+  aplanado_m2_dia_manual: 17.5
+  aplanado_m2_dia_lanzadora: 65.0
+  montaje_panel_m2_dia: 45.0        # [supuesto]
+  cimentacion_m2_dia: 25.0          # [supuesto]
+  losa_m2_dia: 30.0                 # [supuesto]
+  cuadrilla_personas: 3             # [supuesto]
+
+# ---------------------------------------------------------------------------
+# Geometría por defecto (cuando no se extrae del plano)
+# ---------------------------------------------------------------------------
+geometria_defecto:
+  altura_muro_m: 2.80
+  esquinas: 4
+  # Muros divisorios interiores como fracción de los perimetrales.
+  factor_muros_interiores: 0.90     # [supuesto] típico residencial
+  ventanas_por_100m2: 5.0           # [supuesto]
+  puertas_ext_por_vivienda: 2.0     # [supuesto]
+  puertas_int_por_100m2: 4.0        # [supuesto]
+  banos_por_100m2: 1.7              # [supuesto]
+  metros_lineales_cocina_por_100m2: 4.0   # [supuesto]
+
+# ---------------------------------------------------------------------------
+# Desperdicios
+# ---------------------------------------------------------------------------
+# El panel NO lleva desperdicio porcentual: la modulación a 1.22 m con redondeo
+# hacia arriba ya lo incorpora de forma física (y más exacta que un 5% plano).
+desperdicios:
+  concreto: 0.08
+  mortero: 0.10
+  acero: 0.05
+  mallas: 0.05
+  acabados: 0.05
+
+# ---------------------------------------------------------------------------
+# Comparación contra construcción tradicional
+# ---------------------------------------------------------------------------
+# [doc] EPS/ICF ahorra 20-40% en OBRA GRIS (no en acabados, que son iguales).
+# [doc] Default sugerido: 27.5%. El "83%" anterior comparaba obra gris EPS
+#       contra obra TERMINADA tradicional: peras con manzanas.
+comparacion_tradicional:
+  ahorro_obra_gris_min: 0.20
+  ahorro_obra_gris_default: 0.275
+  ahorro_obra_gris_max: 0.40
+  ahorro_acabados: 0.0      # [doc] los acabados son iguales en ambos sistemas
+  # Rendimiento de plazo de ejecución (días/m²)
+  dias_por_m2_eps: 0.9      # [supuesto]
+  dias_por_m2_tradicional: 2.5
+
+# ---------------------------------------------------------------------------
+# Factores por zona de riesgo (RD)
+# ---------------------------------------------------------------------------
+zonas_riesgo:
+  moderado: {acero: 1.00, hormigon: 1.00}
+  alto: {acero: 1.20, hormigon: 1.10}
+  muy_alto: {acero: 1.35, hormigon: 1.00}
+
+# ---------------------------------------------------------------------------
+# Objetivo de precisión
+# ---------------------------------------------------------------------------
+# [doc] "el cálculo real debe caer dentro de ±5% del costo ejecutado"
+objetivo:
+  tolerancia_vs_obra_ejecutada: 0.05

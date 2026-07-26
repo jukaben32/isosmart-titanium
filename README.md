@@ -1,4 +1,4 @@
-# 🏗️ IsoSmart Titanium v4.5
+# 🏗️ IsoSmart Titanium v4.6
 
 **Sistema Inteligente de Presupuestos y Visualización BIM para Construcción con Poliestireno Expandido**
 
@@ -51,13 +51,73 @@ IsoSmart Titanium es una aplicación profesional para la industria de la constru
 
 | Módulo | Estado | Detalles |
 |--------|--------|----------|
-| Paso 1: Canvas + Visión IA | ✅ Completado | Análisis de planos, cálculo de áreas |
-| Paso 2: Motor Financiero RD | ✅ Completado | Análisis de densidades, comparativas |
-| Paso 3A: Session State Global | ✅ Completado | Inicialización de precios dinámicos |
-| Paso 3B: Panel de Precios | ✅ Completado | Edición interactiva de costos |
-| Paso 3C: Integración de Llamadas | ✅ Completado | Calculadora unificada en `utils/calculador.py` |
-| Paso 3D: Correcciones de Bugs | ✅ Completado | Fix desperdicio hormigón y equipos AC |
-| **Paso 4: Refactor + Tests** | **✅ Completado** | **UI modular (`ui_*.py`), 23 tests, cacheo de APIs** |
+| Paso 1: Canvas + Visión IA | ✅ | Análisis de planos, cálculo de áreas |
+| Paso 2: Motor Financiero RD | ✅ | ROI, VAN, TIR |
+| Paso 3: Pricebook dinámico | ✅ | Precios editables, persistencia atómica |
+| Paso 4: Refactor UI modular | ✅ | `ui_*.py` por dominio |
+| **Paso 5: Auditoría — P0/P1** | **✅** | **Bloqueantes cerrados, seguridad, CI, 75 tests** |
+| **Paso 6: Motor QTO (Fase 1)** | **🟡 En curso** | **Partidas completas; faltan precios de proveedor** |
+| Paso 7: Migración total al QTO | ⬜ | Retirar `utils/calculador.py` legado |
+
+### Correcciones de la auditoría (2026-07-26)
+
+Ver [`AUDITORIA.md`](AUDITORIA.md) para el informe completo. Resumen de lo cerrado:
+
+**Bloqueantes**
+- `st_canvas` sin importar en `ui_calculadora.py` y `ui_vision.py` (7 usos) → dos páginas
+  reventaban con `NameError` al subir un plano.
+- **La generación de PDF nunca funcionó**: `output(dest='S').encode('latin-1')` lanza
+  `AttributeError` con fpdf2 ≥ 2.7, que devuelve `bytearray`.
+- `sistema_sel` no existía → el envío de cotizaciones por correo fallaba siempre.
+
+**Cálculo**
+- La calidad **"económica"** (con tilde) cotizaba igual que "media": el motor buscaba
+  "economica" y `.get(x, default)` degradaba en silencio. Ahora hay `Enum` + validación
+  estricta en `utils/dominio.py`.
+- **ROI con el signo invertido**: cuando EPS salía más barato, el ahorro inicial se
+  trataba como un desembolso. VAN, TIR y payback se calculaban sobre una inversión
+  inexistente.
+- **Tres modelos energéticos incompatibles** (divergencia de 36× para la misma casa).
+  Unificados en `AnalisisEnergetico`; la tarifa vive en `utils/tarifa.py`.
+
+**Seguridad**
+- `ADMIN_PASSWORD` caía a `admin123`: un despliegue sin variable exponía el CRM completo.
+  Ahora sin fallback, con `hmac.compare_digest` y límite de intentos.
+- `data/leads_db.json` no estaba en `.gitignore` → riesgo de publicar PII de clientes.
+- Los leads se perdían en cada reinicio de Streamlit Cloud → `utils/repositorio.py`
+  (SQLite / Supabase).
+
+## 🧾 Motor de cantidades (QTO)
+
+`utils/qto.py` implementa `docs/BASE_TECNICA_EPS_ICF.md`. Diferencias con el motor
+clásico (`utils/calculador.py`, aún disponible):
+
+| | Motor clásico | Motor QTO |
+|---|---|---|
+| Superficie de muro | `m² × 2.2` (constante) | perímetro × altura × niveles |
+| Mortero | 12 cm de concreto | 2.5 cm por cara ([doc]) |
+| Paneles | 5% de merma plana | modulación real a 1.22 m |
+| Mallas, anclas, cimentación | ausentes | incluidas |
+| Instalaciones, baños, cocina, mano de obra | ausentes | incluidas |
+| Obra terminada | 9.6% del total | ~46% del total |
+| Comparación | gris EPS vs **terminada** tradicional → 83.6% fijo | **gris vs gris** → 27.5% ([doc]) |
+
+```python
+from utils.geometria import Geometria
+from utils.qto import MotorQTO
+
+geo = Geometria(area_m2=120, perimetro_m=44, altura_muro_m=2.8, niveles=1)
+motor = MotorQTO(geo, calidad="media")
+
+motor.presupuesto()              # DataFrame de partidas
+motor.comparar_con_tradicional() # gris vs gris
+motor.partidas_por_verificar()   # precios que aún son referencia
+```
+
+> ⚠️ **Los precios de las partidas nuevas son de REFERENCIA, no cotizaciones.**
+> `motor.partidas_por_verificar()` los identifica y la interfaz lo advierte.
+> Sustituirlos por precios de proveedor es lo que falta para alcanzar el objetivo
+> de ±5% frente a obra ejecutada.
 
 ## 📦 Instalación
 
@@ -144,13 +204,24 @@ utils/energia.py    → Análisis energético (tarifa BTS2, ahorro térmico)
 
 ## 🧪 Testing
 
-La lógica de negocio está protegida por **23 tests** (sin dependencia de Streamlit):
-
 ```bash
-python tests/comparar_calculadoras.py   # Regresión de precios
-python tests/test_financiera.py         # ROI, VAN, TIR, financiamiento
-python tests/test_energia.py            # Consumo, ahorro, dimensionado AC
+pip install pytest ruff
+pytest                                  # 75 tests
+ruff check --select F821,F811 .         # errores bloqueantes
+python tests/comparar_calculadoras.py   # regresión del motor clásico
 ```
+
+| Archivo | Cubre |
+|---|---|
+| `tests/test_qto.py` | Motor de cantidades, geometría, comparación gris vs gris |
+| `tests/test_auditoria_regresiones.py` | Un test por cada bug de la auditoría |
+| `tests/test_financiera.py` | ROI, VAN, TIR, financiamiento |
+| `tests/test_energia.py` | Carga térmica, consumo, dimensionado AC |
+| `tests/test_calculations.py` | Cálculos estructurales |
+| `tests/test_ai_text_design.py` | Parseo de respuestas de Gemini |
+
+CI en `.github/workflows/ci.yml`: `ruff` + `pytest` en cada push. El chequeo `F821`
+es bloqueante — es el que habría atrapado los siete `st_canvas` sin importar.
 
 ## 🛠️ Tecnologías
 
@@ -159,7 +230,7 @@ python tests/test_energia.py            # Consumo, ahorro, dimensionado AC
 - **IA**: Google Gemini
 - **PDF**: ReportLab / FPDF
 - **Datos**: Pandas
-- **Almacenamiento**: JSON atómico con `write_json_atomic()`
+- **Almacenamiento**: SQLite por defecto, Supabase opcional (`utils/repositorio.py`)
 
 ## 🚀 Despliegue en Streamlit Community Cloud
 

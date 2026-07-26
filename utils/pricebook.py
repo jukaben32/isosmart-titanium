@@ -34,7 +34,40 @@ DEFAULT_PRICEBOOK: Dict[str, float] = {
     "Fregadero_cocina": 6500.00,
     "Gabinete_cocina_ml": 12000.00,
     "Meson_granito_ml": 18000.00,
+
+    # -----------------------------------------------------------------
+    # Partidas incorporadas por la auditoría para completar el presupuesto.
+    # El motor anterior solo usaba 9 de los 27 materiales; faltaban mortero,
+    # mallas, instalaciones, impermeabilización y MANO DE OBRA, que son ~75%
+    # del costo real de una vivienda.
+    # -----------------------------------------------------------------
+    "Mortero_saco": 380.00,
+    "Microfibra_kg": 320.00,
+    "Malla_zigzag_pieza": 95.00,
+    "Malla_esquinera_pieza": 180.00,
+    "Malla_union_pieza": 145.00,
+    "Polietileno_m2": 65.00,
+    "Instalacion_electrica_m2": 1450.00,
+    "Instalacion_sanitaria_m2": 1250.00,
+    "Puerta_exterior": 22000.00,
+    "Impermeabilizante_azotea_m2": 750.00,
+    "Cielo_raso_m2": 950.00,
+    "MO_jornal_dia": 1800.00,
 }
+
+# ---------------------------------------------------------------------------
+# Precios que todavía son REFERENCIA, no cotización de proveedor.
+#
+# docs/BASE_TECNICA_EPS_ICF.md, sección 11: "Placeholder: precios de REFERENCIA
+# Covintex convertidos a RD$ [...] NO inventar cifras". Marcarlos explícitamente
+# permite que la interfaz y el PDF avisen en vez de presentarlos como firmes.
+# ---------------------------------------------------------------------------
+PRECIOS_POR_VERIFICAR = frozenset({
+    "Mortero_saco", "Microfibra_kg", "Malla_zigzag_pieza", "Malla_esquinera_pieza",
+    "Malla_union_pieza", "Polietileno_m2", "Instalacion_electrica_m2",
+    "Instalacion_sanitaria_m2", "Puerta_exterior", "Impermeabilizante_azotea_m2",
+    "Cielo_raso_m2", "MO_jornal_dia",
+})
 
 
 @dataclass(frozen=True)

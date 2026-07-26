@@ -18,7 +18,10 @@ from ui_calculadora import (
     pagina_plano_estructura,
 )
 from ui_inicio import pagina_inicio
-from ui_presupuesto import pagina_panel_operativo
+from ui_presupuesto import (
+    pagina_panel_operativo,
+    pagina_presupuesto_detallado,
+)
 from ui_team import pagina_team
 from ui_visor_bim import pagina_visor_bim
 
@@ -35,7 +38,7 @@ def main():
 
         menu = st.radio(
             "Navegación",
-            ["🏠 Inicio", "👷 Nuestro Team", "🧮 Calculadora", "📐 Plano → Estructura", "🧱 Visor BIM 3D", "🎛️ Panel Operativo", "📞 Contacto"],
+            ["🏠 Inicio", "👷 Nuestro Team", "🧮 Calculadora", "🧾 Presupuesto Detallado", "📐 Plano → Estructura", "🧱 Visor BIM 3D", "🎛️ Panel Operativo", "📞 Contacto"],
             label_visibility="collapsed"
         )
 
@@ -57,6 +60,8 @@ def main():
         pagina_team()
     elif menu == "🧮 Calculadora":
         pagina_calculadora()
+    elif menu == "🧾 Presupuesto Detallado":
+        pagina_presupuesto_detallado()
     elif menu == "📐 Plano → Estructura":
         pagina_plano_estructura()
     elif menu == "🧱 Visor BIM 3D":

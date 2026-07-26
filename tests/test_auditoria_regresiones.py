@@ -92,7 +92,9 @@ def test_pricebook_sin_clave_duplicada_de_ladrillo():
     precios = Pricebook("data/pricebook.json").load()
     assert "Ladrillounidad" not in precios
     assert "Ladrillo_unidad" in precios
-    assert len(precios) == 27
+    # Sin claves duplicadas: cada material aparece una sola vez.
+    assert len(precios) == len(set(precios))
+    assert len(precios) == len(DEFAULT_PRICEBOOK)
 
 
 def test_claves_usadas_existen_en_el_pricebook():

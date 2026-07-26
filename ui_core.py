@@ -1,21 +1,17 @@
 # -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
 import base64
-import hashlib
 import os
-from datetime import date, datetime
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import google.generativeai as genai
-import pandas as pd
 import streamlit as st
 
 from utils.repositorio import RepositorioSQLite, obtener_repositorio
-from fpdf import FPDF
 
 from utils.ai_media import generate_facade_image_fal, generate_video_luma
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
-from utils.storage import list_dict_values, read_json, write_json_atomic
 
 # ---------------------------------------------------------------------------
 # Componente opcional de lienzo interactivo.
