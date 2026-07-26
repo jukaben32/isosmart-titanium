@@ -226,39 +226,38 @@ class AnalisisFinanciero:
 
         Returns:
             DataFrame con análisis de sensibilidad
+
+        MIGRACIÓN (revisión de pantallas, 2026-07-26): antes usaba el motor
+        clásico (`BudgetCalculator`), que da 9.6% de obra terminada y un
+        ahorro fijo del 83.6% para cualquier área. Ahora usa `MotorQTO`
+        (motor de cantidades, Fase 1 de la auditoría), cuyo ahorro varía
+        genuinamente con el proyecto.
         """
-        from utils.calculador import BudgetCalculator
+        from utils.geometria import Geometria
+        from utils.qto import MotorQTO
 
         resultados = []
         areas = np.arange(area_min, area_max + paso, paso)
         precios = DEFAULT_PRICEBOOK
+        sistema_qto = "icf" if sistema.lower() == "icf" else "isotex"
 
         for area in areas:
-            obra_gris, obra_terminada = BudgetCalculator.calcular_presupuesto_completo(
-                m2=area,
-                sistema=f"Paneles {sistema}" if sistema != "icf" else "ICF Proform",
-                precios=precios,
-                incluir_vigas=True,
-                calidad_terminados=calidad
-            )
+            motor = MotorQTO(Geometria(area_m2=float(area)), precios,
+                             sistema=sistema_qto, calidad=calidad)
+            comp = motor.comparar_con_tradicional()
 
-            total_isotex = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-            comparacion = BudgetCalculator.comparar_sistemas(area, precios)
-            total_tradicional = comparacion['tradicional']['costo_total']
-
-            costo_m2_isotex = total_isotex / area
-            costo_m2_trad = total_tradicional / area
-            ahorro_pct = ((total_tradicional - total_isotex) / total_tradicional) * 100
+            total_isotex = comp["eps"]["costo_total"]
+            total_tradicional = comp["tradicional"]["costo_total"]
 
             resultados.append({
                 'Area_m2': area,
                 'Costo_Isotex_RD': total_isotex,
                 'Costo_Tradicional_RD': total_tradicional,
-                'Costo_m2_Isotex': costo_m2_isotex,
-                'Costo_m2_Tradicional': costo_m2_trad,
-                'Ahorro_RD': total_tradicional - total_isotex,
-                'Ahorro_Pct': ahorro_pct,
-                'Tiempo_Construccion_Dias': comparacion['isotex']['tiempo_dias']
+                'Costo_m2_Isotex': comp["eps"]["costo_m2"],
+                'Costo_m2_Tradicional': comp["tradicional"]["costo_m2"],
+                'Ahorro_RD': comp["ahorro"]["total_rd"],
+                'Ahorro_Pct': comp["ahorro"]["total_pct"],
+                'Tiempo_Construccion_Dias': comp["eps"]["dias"]
             })
 
         return pd.DataFrame(resultados)
@@ -277,24 +276,23 @@ class AnalisisFinanciero:
 
         Returns:
             DataFrame con análisis de sensibilidad
+
+        MIGRACIÓN (revisión de pantallas, 2026-07-26): ver nota en
+        `analizar_sensibilidad_area`.
         """
         if variacion_pct is None:
             variacion_pct = [-20, -10, 0, 10, 20]
 
-        from utils.calculador import BudgetCalculator
+        from utils.geometria import Geometria
+        from utils.qto import MotorQTO
 
         resultados = []
         precios = DEFAULT_PRICEBOOK
+        sistema_qto = "icf" if sistema.lower() == "icf" else "isotex"
+        geo = Geometria(area_m2=area_m2)
 
         # Calcular baseline
-        obra_gris_base, obra_terminada_base = BudgetCalculator.calcular_presupuesto_completo(
-            m2=area_m2,
-            sistema=f"Paneles {sistema}" if sistema != "icf" else "ICF Proform",
-            precios=precios,
-            incluir_vigas=True,
-            calidad_terminados="media"
-        )
-        costo_base = obra_gris_base['Subtotal'].sum() + obra_terminada_base['Subtotal'].sum()
+        costo_base = MotorQTO(geo, precios, sistema=sistema_qto).total()
 
         for variacion in variacion_pct:
             factor = 1 + (variacion / 100)
@@ -315,22 +313,49 @@ class AnalisisFinanciero:
     def generar_proyeccion_flujo_caja(cls, area_m2: float, costo_total: float,
                                       horizonte_anios: int = 20,
                                       tasa_crecimiento_energia: float = 0.05,
-                                      tasa_descuento: float = None) -> pd.DataFrame:
+                                      tasa_descuento: float = None,
+                                      costo_tradicional: float = None) -> pd.DataFrame:
         """
         Genera proyección de flujo de caja año por año
 
         Args:
             area_m2: Área de construcción
-            costo_total: Costo total del proyecto
+            costo_total: Costo total del proyecto (EPS/ICF)
             horizonte_anios: Período de proyección
             tasa_crecimiento_energia: Crecimiento anual del costo de energía
             tasa_descuento: Tasa de descuento
+            costo_tradicional: Costo de la alternativa tradicional, para calcular
+                el diferencial real (ver nota de corrección abajo)
 
         Returns:
             DataFrame con proyección anual
+
+        CORRECCIÓN (revisión de pantallas, 2026-07-26)
+        ------------------------------------------------
+        Antes: `acumulado = flujo_neto - costo_total` restaba el costo TOTAL de
+        construir la casa en el año 1, no el diferencial frente a la
+        alternativa tradicional. El resultado: la curva "Flujo de Caja
+        Acumulado" nunca se acercaba a cero en 20 años (quedaba en varios
+        millones de pesos negativos), contradiciendo directamente el ROI
+        positivo que la misma página mostraba arriba, calculado con
+        `calcular_roi()` (ya corregido en la Fase 1 de la auditoría). Dos
+        funciones, los mismos datos de entrada, dos historias contradictorias.
+
+        Ahora se resta el mismo diferencial que usa `calcular_roi()`: si EPS
+        es más barato que lo tradicional, no hay sobrecosto que recuperar
+        (diferencial >= 0) y el año 1 no debe partir de un hueco de millones
+        de pesos que nunca se llena.
         """
         if tasa_descuento is None:
             tasa_descuento = cls.TASA_DESCUENTO_DEFAULT
+
+        if costo_tradicional is not None:
+            diferencial_inicial = costo_tradicional - costo_total
+        else:
+            # Sin punto de comparación, no se puede saber si hay sobrecosto.
+            # Antes esto asumía implícitamente costo_tradicional=0 (peor caso
+            # posible); ahora se asume 0 explícitamente y se documenta.
+            diferencial_inicial = 0.0
 
         datos = []
         energia_mensual = cls.calcular_ahorro_energia_mensual(area_m2, "isotex")
@@ -351,9 +376,10 @@ class AnalisisFinanciero:
             factor_descuento = (1 + tasa_descuento) ** anio
             valor_presente = flujo_neto / factor_descuento
 
-            # Acumulado
+            # Acumulado: parte del diferencial real (0 si EPS ya es más barato),
+            # no del costo total de la construcción.
             if anio == 1:
-                acumulado = flujo_neto - costo_total
+                acumulado = flujo_neto + diferencial_inicial
             else:
                 acumulado = datos[-1]['Acumulado_Nominal'] + flujo_neto
 
@@ -381,36 +407,48 @@ class AnalisisFinanciero:
             usar_vigas_h: Si se incluyen vigas H estructurales
 
         Returns:
-            DataFrame comparativo
+            DataFrame comparativo, con una columna `nota` explicando que el
+            costo no varía por densidad en el modelo actual.
+
+        HALLAZGO (revisión de pantallas, 2026-07-26)
+        -----------------------------------------------
+        Esta función mostraba tres filas ("15kg", "20kg", "25kg") con
+        **costo idéntico** en las tres — la densidad se recibía como
+        parámetro pero nunca entraba en ningún cálculo, así que el gráfico
+        de la Dashboard sugería una comparación real donde no había ninguna.
+        Además, "15kg/20kg/25kg" no corresponde a ninguna especificación real
+        de panel Covintec (sus fichas técnicas dan 2.6-2.8 kg/m² de peso sin
+        aplanar para 3"/4", ver `utils/fuentes.py::FICHA_COVINTEC`) — parece
+        una etiqueta inventada desde el origen, no solo un cálculo faltante.
+
+        Mientras el pricebook no tenga precios reales por espesor de panel,
+        esta función devuelve el costo real (vía MotorQTO) IDÉNTICO para las
+        tres filas, con una columna `nota` que lo explica en vez de fingir
+        una diferencia que no existe.
         """
-        from utils.calculador import BudgetCalculator
+        from utils.geometria import Geometria
+        from utils.qto import MotorQTO
 
         precios = DEFAULT_PRICEBOOK
         densidades = ["15kg", "20kg", "25kg"]
         resultados = []
 
+        sistema_qto = "icf" if "icf" in sistema.lower() else "isotex"
+        motor = MotorQTO(Geometria(area_m2=area_m2), precios, sistema=sistema_qto)
+        comp = motor.comparar_con_tradicional()
+        total = comp["eps"]["costo_total"]
+
         for densidad in densidades:
-            obra_gris = BudgetCalculator.calcular_obra_grisa(
-                m2=area_m2,
-                sistema=sistema,
-                precios=precios,
-                incluir_vigas=usar_vigas_h
-            )
-            obra_terminada = BudgetCalculator.calcular_obra_terminada(
-                area_m2, area_m2 * 2.2, precios, "media"
-            )
-
-            total = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-            comparacion = BudgetCalculator.comparar_sistemas(area_m2, precios)
-
             resultados.append({
                 'Densidad_Panel': densidad,
                 'Costo_Total_RD': total,
                 'Costo_m2_RD': total / area_m2,
-                'Ahorro_vs_Tradicional_RD': comparacion['tradicional']['costo_total'] - total,
-                'Ahorro_Pct': ((comparacion['tradicional']['costo_total'] - total) /
-                              comparacion['tradicional']['costo_total']) * 100,
-                'Peso_kg_m2': 15 if densidad == "15kg" else (20 if densidad == "20kg" else 25)
+                'Ahorro_vs_Tradicional_RD': comp["ahorro"]["total_rd"],
+                'Ahorro_Pct': comp["ahorro"]["total_pct"],
+                'Peso_kg_m2': None,  # sin fuente real para este dato por densidad
+                'nota': ("El pricebook actual no distingue precio por espesor de "
+                        "panel; el costo es el mismo para las tres densidades "
+                        "hasta contar con precios reales por espesor."),
             })
 
         return pd.DataFrame(resultados)

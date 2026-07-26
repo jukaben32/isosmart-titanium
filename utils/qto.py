@@ -420,6 +420,49 @@ class MotorQTO:
                     "subtotal", "precio_por_verificar", "fuente"]
         return df[columnas]
 
+    @classmethod
+    def claves_precio_usadas(cls, precios: Optional[Dict[str, float]] = None) -> frozenset:
+        """
+        Claves del pricebook que este motor consume.
+
+        Se computa EJECUTANDO el motor sobre un escenario representativo
+        (2 niveles + calidad alta, para capturar las claves que solo
+        aparecen condicionalmente: losa de entrepiso, porcelanato) en vez de
+        mantener una lista escrita a mano -- eso fue justo lo que hizo que el
+        motor clásico (`BudgetCalculator.CLAVES_PRECIO_USADAS`) se desalineara
+        de sus propias partidas.
+        """
+        from .geometria import Geometria
+        from .pricebook import DEFAULT_PRICEBOOK
+
+        precios = precios or DEFAULT_PRICEBOOK
+        geo = Geometria(area_m2=120.0, perimetro_m=44.0, niveles=2)
+        motor = cls(geo, precios, calidad="alta")
+        return frozenset(p.clave_precio for p in motor.partidas() if p.clave_precio)
+
+    def presupuesto_formato_legado(self) -> pd.DataFrame:
+        """
+        El mismo presupuesto con las columnas que esperan `PDFGenerator`,
+        la exportación a Excel y los gráficos de `ui_calculadora.py`
+        (`Categoria`, `Material`, `Detalle`, `Cantidad`, `Unidad`,
+        `P_Unitario`, `Subtotal` — el esquema exacto de `utils/calculador.py`).
+
+        Existe para que el PDF y el Excel que recibe un cliente muestren las
+        MISMAS partidas que sumó el motor QTO. Antes el PDF recibía solo el
+        DataFrame de obra gris pero el total impreso incluía obra gris +
+        terminada: las filas nunca sumaban el total mostrado.
+        """
+        df = self.presupuesto()
+        return df.rename(columns={
+            "partida": "Material",
+            "detalle": "Detalle",
+            "cantidad": "Cantidad",
+            "unidad": "Unidad",
+            "precio_unitario": "P_Unitario",
+            "subtotal": "Subtotal",
+            "categoria": "Categoria",
+        })[["Categoria", "Material", "Detalle", "Cantidad", "Unidad", "P_Unitario", "Subtotal"]]
+
     def total(self) -> float:
         return float(sum(p.subtotal for p in self.partidas()))
 

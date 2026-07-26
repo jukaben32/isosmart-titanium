@@ -11,7 +11,8 @@ from ui_core import (
 
 # Helpers compartidos desde ui_core
 from ui_vision import render_integradora_vision_canvas
-from utils.calculador import BudgetCalculator
+from utils.estado import ProyectoState
+from utils.qto import CATEGORIAS_OBRA_GRIS, MotorQTO
 from utils.financiera import AnalisisFinancieroRD
 from utils.pricebook import Pricebook
 
@@ -34,10 +35,11 @@ def render_pestana_pricebook():
     libro = Pricebook(os.path.join("data", "pricebook.json"))
     precios = libro.load()
 
-    # Materiales que el motor de cálculo consume hoy. El resto se muestra pero
-    # se marca honestamente como sin efecto sobre el presupuesto: editarlos y
-    # ver "guardado" sin que cambie nada era una promesa falsa de la interfaz.
-    usados = BudgetCalculator.claves_precio_usadas()
+    # Materiales que el motor QTO consume hoy (fuente única desde Fase 1). El
+    # resto se muestra pero se marca honestamente como sin efecto sobre el
+    # presupuesto: editarlos y ver "guardado" sin que cambie nada era una
+    # promesa falsa de la interfaz.
+    usados = MotorQTO.claves_precio_usadas()
 
     activos = {k: v for k, v in precios.items() if k in usados}
     inactivos = {k: v for k, v in precios.items() if k not in usados}
@@ -95,14 +97,28 @@ def render_vista_presupuesto_y_roi():
 
     st.markdown(f"#### 📐 Proyecto Actual Evaluado: **{area:.2f} m²**")
 
-    # Ejecutar cálculos de obra gris y acabados
-    df_gris, df_term = BudgetCalculator.calcular_presupuesto_completo(area, "Paneles Isotex", precios)
+    # ------------------------------------------------------------------
+    # Motor de cálculo: MotorQTO (antes: BudgetCalculator, motor clásico).
+    #
+    # Esta pestaña mostraba solo la obra gris (ignoraba obra terminada en el
+    # total), con sistema fijo en "Paneles Isotex" y sin usar el perímetro,
+    # niveles o zona de riesgo que el usuario ya hubiera calibrado en la
+    # pestaña "📐 Visión & Geometría" de este mismo Panel Operativo.
+    # ------------------------------------------------------------------
+    estado = ProyectoState.cargar()
+    estado.area_m2 = area
+    geo = estado.geometria()
+    motor = MotorQTO(geo, precios, sistema=estado.sistema, calidad=estado.calidad,
+                     zona_riesgo=estado.zona_riesgo)
+
+    df_completo = motor.presupuesto()
 
     st.markdown("##### 🧱 Costos de Obra Gris Estructural")
-    st.dataframe(df_gris, use_container_width=True)
+    st.dataframe(df_completo[df_completo["categoria"].isin(CATEGORIAS_OBRA_GRIS)],
+                use_container_width=True)
 
-    total_gris = df_gris["Subtotal"].sum()
-    st.metric("Total Neto Estructural", f"RD$ {total_gris:,.2f}")
+    st.metric("Total Neto Estructural (obra gris)", f"RD$ {motor.total_obra_gris():,.2f}")
+    st.metric("Total General (gris + terminada)", f"RD$ {motor.total():,.2f}")
 
     # Retorno de Inversión Térmica con tarifa BTS2
     st.divider()

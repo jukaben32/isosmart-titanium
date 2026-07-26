@@ -12,6 +12,8 @@ Ejecutar:
 
 import sys
 
+import pytest
+
 sys.path.insert(0, ".")
 
 from utils.energia import AnalisisEnergetico
@@ -64,8 +66,14 @@ def test_ahorro_energetico_estructura_y_signos():
     assert abs(r.ahorro_anual_rd - r.ahorro_mensual_rd * 12) < 0.5
     assert r.reduccion_pico_demanda_kw > 0
     assert r.co2_evitado_kg_anio > 0
-    # ROI en años debe ser finito y positivo
-    assert r.roi_energetico_anios > 0 and r.roi_energetico_anios != float('inf')
+    # ROI en años: antes se asumía SIEMPRE un sobrecosto fijo (area_m2 * 500,
+    # sin fuente) a recuperar, así que el ROI siempre daba positivo. Ahora se
+    # calcula con el diferencial de costo REAL del motor QTO (utils/qto.py):
+    # como EPS/ICF sale más barato que la construcción tradicional en obra
+    # gris, no hay sobrecosto que recuperar y el ahorro es inmediato (0 años),
+    # no un número inventado.
+    assert r.roi_energetico_anios == 0.0
+    assert r.roi_energetico_anios != float('inf')
     print("[OK] ahorro energetico: estructura y signos coherentes")
 
 
@@ -138,3 +146,76 @@ def run_all():
 
 if __name__ == "__main__":
     run_all()
+
+
+# ===========================================================================
+# Regresiones de la revisión de pantallas (2026-07-26)
+# ===========================================================================
+
+def test_constantes_muertas_fueron_eliminadas():
+    """
+    Bug: FACTOR_REDUCCION_ISOTEX/ICF, COSTO_KWH, COSTO_KWH_PICO,
+    HORAS_PICO_DIA, HORAS_FUERA_PICO_DIA y TARIFA_NET_METERING existían
+    como constantes de clase que NINGUNA función del módulo leía. La UI
+    mostraba "hasta 55%" citando una de ellas mientras el cálculo real daba
+    44.4%. Quedan retiradas para no volver a divergir en silencio.
+    """
+    for nombre in ("FACTOR_REDUCCION_ISOTEX", "FACTOR_REDUCCION_ICF",
+                   "COSTO_KWH", "COSTO_KWH_PICO", "HORAS_PICO_DIA",
+                   "HORAS_FUERA_PICO_DIA", "TARIFA_NET_METERING"):
+        assert not hasattr(AnalisisEnergetico, nombre), f"constante muerta reapareció: {nombre}"
+
+
+def test_reduccion_carga_termica_pct_coincide_con_el_calculo_real():
+    """
+    El "hasta 55%" que mostraba la UI no coincidía con el cálculo real
+    (44.4%). `reduccion_carga_termica_pct()` es ahora la única fuente: se
+    deriva de los mismos coeficientes que usa `calcular_carga_termica()`,
+    así que no puede divergir de lo que el usuario realmente ve calculado.
+    """
+    isotex_pct = AnalisisEnergetico.reduccion_carga_termica_pct("isotex")
+    icf_pct = AnalisisEnergetico.reduccion_carga_termica_pct("icf")
+
+    assert isotex_pct == pytest.approx(44.4, abs=0.5)
+    assert icf_pct == pytest.approx(51.1, abs=0.5)
+    # ICF reduce más carga térmica que Isotex (22 vs 25 BTU/h/m³)
+    assert icf_pct > isotex_pct
+
+
+def test_reduccion_carga_termica_no_depende_del_area():
+    """Es un porcentaje: debe ser el mismo para 60 m² que para 300 m²."""
+    a = AnalisisEnergetico.reduccion_carga_termica_pct("isotex")
+    # La función usa un área fija interna (100 m²) precisamente para que el
+    # resultado sea comparable independientemente del proyecto real.
+    assert a > 0
+
+
+def test_roi_energetico_usa_el_diferencial_de_costo_real_del_qto():
+    """
+    Bug: `sobrecosto_isotex = area_m2 * 500` era un cuarto modelo de ROI,
+    inventado y desconectado tanto del motor QTO como del ROI financiero ya
+    corregido en utils/financiera.py (Fase 1). Como el motor QTO calcula que
+    EPS/ICF es más barato que la construcción tradicional en obra gris, no
+    hay sobrecosto que recuperar: el ahorro debe ser inmediato (0 años),
+    nunca un número positivo inventado.
+    """
+    for area in (60, 120, 300):
+        r = AnalisisEnergetico.calcular_ahorro_energetico(area, sistema="isotex")
+        assert r.roi_energetico_anios == 0.0, f"área {area}: ROI energético debería ser inmediato"
+
+
+def test_calcular_ahorro_energetico_no_revienta_si_el_qto_falla(monkeypatch):
+    """
+    El cálculo del diferencial de costo (import diferido de utils.qto) está
+    protegido con try/except: un fallo ahí no debe bloquear todo el análisis
+    energético, que es información independiente y sigue siendo útil.
+    """
+    import utils.qto
+
+    def _falla(*a, **k):
+        raise RuntimeError("fallo simulado")
+
+    monkeypatch.setattr(utils.qto, "MotorQTO", _falla)
+    r = AnalisisEnergetico.calcular_ahorro_energetico(120, sistema="isotex")
+    assert r.ahorro_mensual_kwh > 0  # el resto del análisis sigue funcionando
+    assert r.roi_energetico_anios == 0.0  # se degrada a "sin sobrecosto conocido"

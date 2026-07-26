@@ -26,7 +26,7 @@ from ui_core import (
     st_canvas,
 )
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS
-from utils.calculador import BudgetCalculator
+from utils.estado import ProyectoState
 
 # Helpers compartidos desde ui_core
 from utils.estilos import boton_enlace  # noqa: E402
@@ -41,6 +41,7 @@ from utils.plan_geometry import (
     scale_from_canvas_line,
 )
 from utils.pricebook import Pricebook
+from utils.qto import CATEGORIAS_OBRA_GRIS, MotorQTO
 from utils.storage import read_json, write_json_atomic
 
 
@@ -281,23 +282,57 @@ def pagina_calculadora():
             project_manager.save_project(project_id, project_data)
             st.success("✅ Proyecto guardado correctamente en la base de datos.")
 
-    # Calcular presupuestos
-    # Inyecta el pricebook (editable) al motor de cálculo.
-    obra_gris_df, obra_terminada_df = BudgetCalculator.calcular_presupuesto_completo(
-        m2=m2_in,
-        sistema=sistema_seleccionado,
-        precios=precios_actuales,
-        incluir_vigas=usar_vigas_h,
-        calidad_terminados=calidad_terminados,
-        zona_riesgo=zona_riesgo
-    )
+    # ------------------------------------------------------------------
+    # Motor de cálculo: MotorQTO (antes: BudgetCalculator, motor clásico)
+    #
+    # Esta es LA página que genera el PDF que recibe un cliente real. Seguía
+    # en el motor clásico después de que la Fase 1 de la auditoría migró el
+    # resto de la app al motor de cantidades — el usuario podía calibrar el
+    # canvas, trazar el polígono, dejar que Gemini leyera el plano... y esta
+    # página seguía calculando con `m2 * 2.2`, sin usar nada de eso.
+    #
+    # Además el PDF recibía solo `obra_gris_df` pero el total impreso incluía
+    # obra gris + terminada: las filas nunca sumaban el total mostrado en el
+    # documento que firma el cliente. `presupuesto_formato_legado()` corrige
+    # ambas cosas a la vez.
+    # ------------------------------------------------------------------
+    estado_proyecto = ProyectoState.cargar()
+    estado_proyecto.area_m2 = m2_in
+    estado_proyecto.sistema = sistema_seleccionado
+    estado_proyecto.calidad = calidad_terminados
+    estado_proyecto.zona_riesgo = zona_riesgo
+    estado_proyecto.guardar()
 
-    total_obra_gris = obra_gris_df['Subtotal'].sum()
-    total_obra_terminada = obra_terminada_df['Subtotal'].sum()
-    total_general = total_obra_gris + total_obra_terminada
+    geo = estado_proyecto.geometria()
+    motor = MotorQTO(geo, precios_actuales, sistema=sistema_seleccionado,
+                     calidad=calidad_terminados, zona_riesgo=zona_riesgo)
+
+    if usar_vigas_h:
+        st.sidebar.warning(
+            "⚠️ Los pórticos de vigas H aún no están modelados en el motor QTO. "
+            "Esta opción no afecta el presupuesto mostrado."
+        )
+
+    presupuesto_legado = motor.presupuesto_formato_legado()
+    obra_gris_df = presupuesto_legado[presupuesto_legado["Categoria"].isin(CATEGORIAS_OBRA_GRIS)].reset_index(drop=True)
+    obra_terminada_df = presupuesto_legado[~presupuesto_legado["Categoria"].isin(CATEGORIAS_OBRA_GRIS)].reset_index(drop=True)
+
+    total_obra_gris = motor.total_obra_gris()
+    total_obra_terminada = motor.total_obra_terminada()
+    total_general = motor.total()
+
+    por_verificar = motor.partidas_por_verificar()
+    if not por_verificar.empty:
+        monto_ref = por_verificar["subtotal"].sum()
+        st.info(
+            f"📎 RD$ {monto_ref:,.0f} ({monto_ref/total_general*100:.0f}% del total) usa "
+            f"precios de **referencia** (Covintec México, convertidos a DOP), no "
+            f"cotizaciones de proveedor local. Ver `utils/fuentes.py`."
+        )
 
     # Métricas
     st.markdown("### 💰 Resumen de Costos")
+
 
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
 
@@ -323,12 +358,16 @@ def pagina_calculadora():
         )
 
     with col_m4:
-        comparacion = BudgetCalculator.comparar_sistemas(m2_in, precios_actuales, sistema_seleccionado, usar_vigas_h, calidad_terminados)
-        ahorro_pct = comparacion['ahorro']['porcentaje']
+        comparacion = motor.comparar_con_tradicional()
+        ahorro_pct = comparacion['ahorro']['total_pct']
         st.metric(
             label="Ahorro vs Tradicional",
             value=f"{ahorro_pct:.1f}%",
-            delta=f"RD$ {comparacion['ahorro']['dinero']:,.0f}"
+            delta=f"RD$ {comparacion['ahorro']['total_rd']:,.0f}"
+        )
+        st.caption(
+            f"{comparacion['ahorro']['obra_gris_pct']:.1f}% sobre obra gris; "
+            f"los acabados son iguales en ambos sistemas."
         )
 
     st.markdown("### ⏱️ Tiempo estimado (productividad)")
@@ -374,19 +413,23 @@ def pagina_calculadora():
         st.dataframe(df_display, use_container_width=True, hide_index=True)
 
     with tab_comp:
-        st.markdown("##### Comparativa Isotex vs Tradicional")
-
-        comparacion = BudgetCalculator.comparar_sistemas(m2_in, precios_actuales, sistema_seleccionado, usar_vigas_h, calidad_terminados)
+        st.markdown("##### Comparativa EPS/ICF vs Tradicional (obra gris vs obra gris)")
+        st.caption(
+            f"El ahorro ({comparacion['ahorro']['obra_gris_pct']:.1f}%) se aplica solo a la "
+            f"obra gris; los acabados son idénticos en ambos sistemas. Antes esta pestaña "
+            f"comparaba obra gris EPS contra obra **terminada** tradicional — peras con "
+            f"manzanas — y mostraba peso y tiempo de construcción sin ninguna fuente."
+        )
 
         col_c1, col_c2 = st.columns(2)
 
         with col_c1:
             st.markdown(f"""
-            #### Isotex/ICF
-            - **Costo Total:** RD$ {comparacion['isotex']['costo_total']:,.0f}
-            - **Costo/m²:** RD$ {comparacion['isotex']['costo_m2']:,.0f}
-            - **Tiempo:** {comparacion['isotex']['tiempo_dias']:.0f} días
-            - **Peso:** {comparacion['isotex']['peso_kg']:,.0f} kg
+            #### EPS/ICF
+            - **Costo Total:** RD$ {comparacion['eps']['costo_total']:,.0f}
+            - **Costo/m²:** RD$ {comparacion['eps']['costo_m2']:,.0f}
+            - **Obra gris:** RD$ {comparacion['eps']['obra_gris']:,.0f}
+            - **Obra terminada:** RD$ {comparacion['eps']['obra_terminada']:,.0f}
             """)
 
         with col_c2:
@@ -394,8 +437,8 @@ def pagina_calculadora():
             #### Tradicional
             - **Costo Total:** RD$ {comparacion['tradicional']['costo_total']:,.0f}
             - **Costo/m²:** RD$ {comparacion['tradicional']['costo_m2']:,.0f}
-            - **Tiempo:** {comparacion['tradicional']['tiempo_dias']:.0f} días
-            - **Peso:** {comparacion['tradicional']['peso_kg']:,.0f} kg
+            - **Obra gris:** RD$ {comparacion['tradicional']['obra_gris']:,.0f}
+            - **Obra terminada:** RD$ {comparacion['tradicional']['obra_terminada']:,.0f}
             """)
 
     # Módulo de Financiamiento
@@ -441,7 +484,9 @@ def pagina_calculadora():
         if st.button("📄 Generar PDF Completo", use_container_width=True):
             pdf_gen = PDFGenerator()
             datos = {'area': m2_in, 'sistema': sistema_seleccionado, 'cliente': cliente}
-            pdf_bytes = pdf_gen.generar_propuesta(cliente, datos, obra_gris_df, total_general)
+            pdf_bytes = pdf_gen.generar_propuesta(
+                cliente, datos, presupuesto_legado, total_general
+            )  # antes: solo obra_gris_df -> las filas no sumaban el total impreso
             st.markdown(
                 create_download_link(pdf_bytes, f"Presupuesto_{cliente.replace(' ', '_')}.pdf"),
                 unsafe_allow_html=True
@@ -484,7 +529,9 @@ def pagina_calculadora():
             import requests
             pdf_gen = PDFGenerator()
             datos = {'area': m2_in, 'sistema': sistema_seleccionado, 'cliente': cliente}
-            pdf_bytes = pdf_gen.generar_propuesta(cliente, datos, obra_gris_df, total_general)
+            pdf_bytes = pdf_gen.generar_propuesta(
+                cliente, datos, presupuesto_legado, total_general
+            )  # antes: solo obra_gris_df -> las filas no sumaban el total impreso
             
             resend_api_key = os.environ.get("RESEND_API_KEY", "")
             if resend_api_key:

@@ -16,9 +16,10 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Antes: `from app import BudgetCalculator` -> import circular hacia el punto de
-# entrada. Dejó de resolver en cuanto se limpiaron los imports muertos de app.py;
-# el motor vive en utils/, que es donde hay que pedirlo.
-from utils.calculador import BudgetCalculator
+# entrada. Dejó de resolver en cuanto se limpiaron los imports muertos de app.py.
+# Ahora esta página usa el motor de cantidades (utils/qto.py), no el clásico.
+from utils.geometria import Geometria
+from utils.qto import MotorQTO
 from utils.estilos import caja_info, encabezado, inyectar_css, tarjeta_metrica  # noqa: E402
 from utils.financiera import AnalisisFinanciero, calcular_costo_unitario_por_sistema
 from utils.pricebook import Pricebook  # noqa: E402  (requiere el sys.path de arriba)
@@ -269,17 +270,22 @@ def main():
         st.session_state.get("precios_sincronizados")
         or Pricebook(os.path.join("data", "pricebook.json")).load()
     )
-    obra_gris, obra_terminada = BudgetCalculator.calcular_presupuesto_completo(
-        m2=area,
-        sistema=sistema,
-        precios=precios_dash,
-        incluir_vigas=True,
-        calidad_terminados=calidad
-    )
+    # ------------------------------------------------------------------
+    # Motor de cálculo: MotorQTO (antes: BudgetCalculator, motor clásico)
+    #
+    # Igual que en ui_calculadora.py (revisión de pantallas, 2026-07-26): esta
+    # página calculaba el ROI/VAN/TIR mostrado sobre costos del motor
+    # clásico (9.6% de obra terminada, ahorro fijo del 83.6%), aunque la
+    # fórmula de `calcular_roi()` ya estaba corregida desde la Fase 1. La
+    # fórmula era correcta; los números que recibía, no.
+    # ------------------------------------------------------------------
+    geo = Geometria(area_m2=area)
+    sistema_qto = "icf" if "icf" in sistema.lower() else "isotex"
+    motor = MotorQTO(geo, precios_dash, sistema=sistema_qto, calidad=calidad)
+    comparacion = motor.comparar_con_tradicional()
 
-    total_isotex = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-    comparacion = BudgetCalculator.comparar_sistemas(area, precios_dash, sistema, False, calidad)
-    total_tradicional = comparacion['tradicional']['costo_total']
+    total_isotex = comparacion["eps"]["costo_total"]
+    total_tradicional = comparacion["tradicional"]["costo_total"]
 
     # Análisis ROI
     resultado_roi = AnalisisFinanciero.calcular_roi(
@@ -434,7 +440,9 @@ def main():
         costo_total=total_isotex,
         horizonte_anios=20,
         tasa_crecimiento_energia=0.05,
-        tasa_descuento=tasa_descuento
+        tasa_descuento=tasa_descuento,
+        costo_tradicional=total_tradicional,  # antes ausente -> el flujo acumulado
+                                              # nunca se acercaba a cero en 20 años
     )
 
     col_f1, col_f2 = st.columns([2, 1])

@@ -236,11 +236,17 @@ def main():
 
         st.divider()
 
-        st.markdown("""
+        # ANTES: texto fijo "reducen la carga térmica hasta 55%", que citaba
+        # una constante muerta (FACTOR_REDUCCION_ISOTEX, nunca usada por el
+        # cálculo real). El cálculo real da 44.4% para isotex y 51.1% para
+        # ICF -- ahora se muestra el número que realmente se está calculando.
+        reduccion_pct = AnalisisEnergetico.reduccion_carga_termica_pct(sistema_analisis)
+        st.markdown(f"""
         <div style="background: #f0f2f6; padding: 15px; border-radius: 10px; font-size: 0.9rem;">
             <strong>💡 Beneficios del Aislamiento:</strong><br>
-            Los sistemas ISOTEX reducen la carga térmica hasta 55% vs construcción tradicional,
-            lo que se traduce en equipos de AC más pequeños y menor consumo.
+            El sistema {sistema_analisis.upper()} reduce la carga térmica en {reduccion_pct:.1f}%
+            frente a construcción tradicional (estimación de ingeniería, ver
+            <code>utils/energia.py</code>), lo que permite equipos de AC más pequeños.
         </div>
         """, unsafe_allow_html=True)
 
