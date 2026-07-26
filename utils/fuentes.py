@@ -166,6 +166,34 @@ FICHA_ISOTEX_DOMINICANA = {
 
 
 # ---------------------------------------------------------------------------
+# NotebookLM del usuario — 50 videos de YouTube sobre EPS/ICF
+# ---------------------------------------------------------------------------
+# El usuario mantiene un cuaderno de NotebookLM curado con 50 videos sobre
+# mejores prácticas de sistemas constructivos EPS/ICF (Covintec, ICF, Isotex).
+# No es accesible directamente (notebooklm.google.com bloquea el rastreo
+# automatizado y requiere sesión de Google), así que el usuario comparte
+# resúmenes puntuales cuando se necesita verificar un parámetro específico.
+#
+# Videos consultados hasta ahora:
+#   #37 "NUEVO CURSO CUANTIFICACION DE MATERIALES" -- fórmulas de malla
+#       zigzag/esquinera/unión, espesores de capa de compresión
+#   #42 "Sabe Usted Como Hacer las Proporciones del Concreto" -- confirmó
+#       exactamente los valores ya usados (3.5/5.5 botes, 138-148 L/bulto)
+#   #20/#34 "Costos Covintec" / "Costos del sistema Constructivo Covintec"
+#       -- rendimientos reales de cuadrilla (armado de muros, losas),
+#       herramienta menor, comparación de ahorro 20-40%
+FUENTE_NOTEBOOKLM_USUARIO = Fuente(
+    valor="NotebookLM del usuario (50 videos de YouTube sobre EPS/ICF)",
+    tipo="referencia",
+    cita="Cuaderno curado por el usuario con videos de canales como "
+         "Covintec México, Construcciones Ideales y otros, sobre mejores "
+         "prácticas de construcción con EPS/ICF. Consultado por resúmenes "
+         "puntuales que el usuario comparte, citando el video de origen.",
+    url=None,
+)
+
+
+# ---------------------------------------------------------------------------
 # Manual Técnico Panel Covintec 2011 — fuente primaria del fabricante
 # ---------------------------------------------------------------------------
 # Encontrado al verificar el conflicto de anclaje de la ronda anterior.

@@ -172,9 +172,8 @@ class Geometria:
         return self.n_puertas_exteriores + self.n_puertas_interiores
 
     # -- dimensiones de vano ----------------------------------------------
-    # Áreas y perímetros de referencia (los del documento) y reales (los del
-    # proyecto, si se indicaron). El cociente entre ambos es lo que permite
-    # escalar la malla zigzag sin inventar una fórmula nueva no documentada.
+    # Tamaños de referencia del documento, sobre los que están calibrados
+    # los conteos empíricos de malla zigzag (12/13 piezas).
     _REF_VENTANA_M = (0.90, 0.90)
     _REF_PUERTA_M = (0.90, 2.15)
 
@@ -183,6 +182,22 @@ class Geometria:
         """
         >1 si las ventanas del proyecto son más grandes que el vano de
         referencia del documento (90x90 cm); 1.0 si se usa el default.
+
+        NOTA (revisión de precisión con NotebookLM del usuario): el video
+        "Cuantificación de Materiales" describe una fórmula para vanos no
+        estándar ("perímetro del vano + excedente diagonal de 30-40 cm en
+        cada esquina, x2 lados, /1.22 m"). Al implementarla literalmente
+        dio un resultado físicamente implausible: MENOS piezas para una
+        ventana MÁS GRANDE (5.6 pzas para 1.5x1.2 m vs. 12 pzas para la
+        referencia de 90x90 cm) -- un resumen de video puede haber
+        comprimido un detalle importante (quizás "excedente diagonal" son
+        piezas de refuerzo adicionales en la esquina, no centímetros
+        sumados al perímetro). No se despliega una fórmula sin poder
+        verificar que tiene sentido físico, así que se mantiene esta
+        extrapolación por proporción de perímetro ([supuesto], pero al
+        menos monótona: vano más grande -> más malla, nunca menos).
+        Pendiente: pedir al NotebookLM un ejemplo numérico resuelto de esa
+        fórmula para poder verificarla antes de reemplazar esto.
         """
         ancho_ref, alto_ref = self._REF_VENTANA_M
         perimetro_real = 2 * (self.ancho_ventana_m + self.alto_ventana_m)

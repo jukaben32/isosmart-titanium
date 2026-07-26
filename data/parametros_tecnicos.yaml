@@ -29,11 +29,18 @@ espesores:
   mortero_muro_por_cara_m: 0.025   # [doc] 2.5 cm por cara. CONFIRMADO por Manual
                                     # Técnico Panel Covintec 2011 ("Mortero de 2.5
                                     # cm. de Espesor") -- coincide exactamente.
-  # [doc] Manual Técnico Panel Covintec 2011: "CAPA DE COMPRESION DE 3.5 cm. DE
-  # ESPESOR". Antes: 0.05 (5cm), tomado de BASE_TECNICA_EPS_ICF.md (fuente:
-  # notebook de videos de YouTube). El manual oficial del fabricante es una
-  # fuente primaria más confiable para este dato puntual.
-  losa_azotea_m: 0.035
+  # [doc] Video #37 "Cuantificación de Materiales" (NotebookLM del usuario):
+  # "La capa de compresión en losas varía: 4 a 5 cm en azoteas y 6 a 7 cm
+  # en entrepisos". Coincide con el rango de BASE_TECNICA_EPS_ICF.md (5 cm).
+  #
+  # CORREGIDO de nuevo: la ronda anterior había bajado esto a 3.5 cm citando
+  # el Manual Técnico Panel Covintec 2011 ("CAPA DE COMPRESION DE 3.5 cm"),
+  # pero ese dato aparecía en la ficha de un producto específico (Qualy
+  # Panel 3"), no como práctica general de azotea. Con DOS fuentes
+  # independientes coincidiendo en 4-5 cm (BASE_TECNICA y este video de
+  # cuantificación), se usa el punto medio de ese rango en vez del dato de
+  # ficha de producto, más estrecho y posiblemente no generalizable.
+  losa_azotea_m: 0.045
   losa_entrepiso_m: 0.065          # [doc] 6-7 cm (BASE_TECNICA; el manual Covintec
                                     # no distingue azotea/entrepiso explícitamente)
   # [doc] Manual Técnico Panel Covintec 2011, sección 1.4: "La losa de
@@ -124,15 +131,39 @@ anclaje:
 
 mallas:
   # [doc] ventana 90x90 = 12 piezas; puerta 215x90 = 13 piezas. AMBOS LADOS (x2).
+  # CONFIRMADO por video #37 "Cuantificación de Materiales" (NotebookLM del
+  # usuario): mismos valores de referencia para vanos estándar.
   zigzag_piezas_por_ventana: 12
   zigzag_piezas_por_puerta: 13
   zigzag_lados: 2
-  # [doc] malla esquinera: (nº esquinas x altura muro) / 2.40 m
+  # [doc] Video #37: para vanos NO estándar ("medidas especiales"), la
+  # fórmula real es: (perímetro del vano + excedente diagonal en cada
+  # esquina) x 2 (ambas caras) / 1.22 m. El "excedente diagonal" es de
+  # 30 a 40 cm POR ESQUINA (se usa el punto medio, 35 cm, para las 4
+  # esquinas de un vano rectangular).
+  #
+  # ⚠️ NO CONECTADA a utils/qto.py todavía: al implementarla literalmente
+  # dio un resultado físicamente implausible (MENOS piezas para una
+  # ventana MÁS GRANDE). El resumen del video puede haber comprimido un
+  # detalle importante. Se mantiene el parámetro documentado por si se
+  # puede verificar con un ejemplo numérico resuelto; mientras tanto,
+  # qto.py usa una extrapolación por proporción de perímetro
+  # (Geometria.factor_escala_ventana/puerta, [supuesto] pero monótona).
+  zigzag_excedente_diagonal_m: 0.35
+  # [doc] malla esquinera: (nº esquinas x altura muro) / 2.40 m. Video #37
+  # añade: "también se deben incluir en las uniones entre muro y losa"
+  # -- un supuesto adicional de la esquinera aún no modelado (pendiente).
   esquinera_largo_pieza_m: 2.40
-  # [doc] malla unión: 10 cm x 2.40 m, ambos lados, en cortes de panel
+  # [doc] malla unión: 10 cm x 2.40 m, ambos lados. Video #37: "necesarias
+  # cuando la altura del muro supera los 2.44 m, o en cortes donde no existe
+  # la pestaña de autoensamble". Antes: solo se estimaba por la fracción
+  # arbitraria de paneles cortados (union_fraccion_paneles_cortados,
+  # [supuesto]); ahora se añade la condición real de altura como un
+  # segundo motivo documentado, aplicado sobre el largo total de muro.
   union_largo_pieza_m: 2.40
   union_lados: 2
-  union_fraccion_paneles_cortados: 0.25   # [supuesto] % de paneles que requieren corte
+  union_altura_umbral_m: 2.44              # [doc] video #37
+  union_fraccion_paneles_cortados: 0.25    # [supuesto] % de paneles que requieren corte
   # Malla electrosoldada 10x10 en cimentación
   electrosoldada_traslape: 1.10           # [supuesto] 10% de traslape
 
@@ -147,15 +178,33 @@ mano_obra:
   # completa, no de un trabajador individual. Ver utils/qto.py::_jornal()
   # para el detalle de la verificación y la fuente.
   aplanado_m2_dia_manual: 17.5
+  # [doc] "Aplanado mecánico (lanzadora): rendimiento sube a 70 m²/jornada"
+  # (NotebookLM del usuario, videos #20/#34 "Costos del sistema Covintec").
+  # Coincide con el extremo superior del rango de BASE_TECNICA (60-70
+  # m²/día); se conserva 65 (punto medio) por tener doble confirmación.
   aplanado_m2_dia_lanzadora: 65.0
-  montaje_panel_m2_dia: 45.0        # [supuesto]
-  cimentacion_m2_dia: 25.0          # [supuesto]
-  losa_m2_dia: 30.0                 # [supuesto]
+  # [doc] "Armado de muros: cuadrilla (1 oficial + 2 ayudantes) rinde
+  # 18 m² por jornada" (NotebookLM del usuario, videos #20/#34). Antes: 45.0
+  # [supuesto], sin ninguna fuente -- 2.5x más optimista que el dato real.
+  # La composición de cuadrilla (1+2=3) coincide con cuadrilla_personas.
+  montaje_panel_m2_dia: 18.0
+  cimentacion_m2_dia: 25.0          # [supuesto] -- sin confirmar en los videos revisados
+  # [doc] "Armado de losa (Qualylosa): rendimiento de 15 m² por jornada"
+  # (NotebookLM del usuario, videos #20/#34). Antes: 30.0 [supuesto], el
+  # doble de rápido que el dato real.
+  losa_m2_dia: 15.0
   # [supuesto], pero corroborado: tablas de rendimiento por cuadrilla en
   # construcción latinoamericana usan típicamente "1 Albañil + 1 Ayudante +
   # 1 Peón" (3 personas) para actividades de aplanado/repello -- coincide
-  # con este valor.
+  # con este valor. Y ahora también con "1 oficial + 2 ayudantes" del
+  # video de costos (NotebookLM del usuario).
   cuadrilla_personas: 3
+  # [doc] "Herramienta menor: 3%" del costo de mano de obra, para no perder
+  # el desgaste de herramienta al presupuestar (NotebookLM del usuario,
+  # videos #20/#34 "Costos del sistema Covintec", citando Art. 185 de la
+  # Ley de Obras Públicas: Costo Directo = materiales + mano de obra +
+  # herramienta). Antes: ausente del modelo por completo.
+  herramienta_menor_pct: 0.03
 
 # ---------------------------------------------------------------------------
 # Geometría por defecto (cuando no se extrae del plano)

@@ -286,12 +286,11 @@ class MotorQTO:
         # --- mallas de refuerzo -------------------------------------------
         # [doc] la fórmula (12/13 piezas por vano, x2 lados) está calibrada
         # para los vanos de referencia del documento (ventana 90x90,
-        # puerta 215x90). Si el proyecto real tiene vanos más grandes,
-        # `Geometria.factor_escala_ventana/puerta` escala la cantidad en
-        # proporción al perímetro del vano -- una extrapolación razonable
-        # ([supuesto], no una fórmula documentada para tamaño arbitrario),
-        # que por defecto es 1.0 (sin vanos indicados = tamaño de referencia,
-        # comportamiento idéntico al anterior).
+        # puerta 215x90). Para vanos más grandes se escala por la
+        # proporción de perímetro contra el vano de referencia
+        # ([supuesto] -- ver Geometria.factor_escala_ventana para la nota
+        # completa sobre por qué no se usó la fórmula literal del video de
+        # NotebookLM, que dio un resultado físicamente implausible).
         piezas_zigzag_base = (
             g.n_ventanas * mallas["zigzag_piezas_por_ventana"] * g.factor_escala_ventana
             + g.n_puertas_total * mallas["zigzag_piezas_por_puerta"] * g.factor_escala_puerta
@@ -302,10 +301,27 @@ class MotorQTO:
             g.esquinas_efectivas * g.altura_efectiva_m * g.niveles
             / mallas["esquinera_largo_pieza_m"]
         )
-        piezas_union = math.ceil(
+
+        # [doc] video "Cuantificación de Materiales" (NotebookLM del
+        # usuario): "malla unión necesaria cuando la altura del muro supera
+        # los 2.44 m, o en cortes donde no existe la pestaña de
+        # autoensamble". Antes solo se estimaba por una fracción arbitraria
+        # de paneles cortados ([supuesto]); ahora se suma la condición real
+        # de altura (aplicada a lo largo de todo el muro, en la costura
+        # horizontal donde el panel se extiende más allá de 2.44 m) como un
+        # segundo motivo documentado. Esta condición SÍ es una simple
+        # comparación de umbral, sin la ambigüedad de traducción que tuvo
+        # la fórmula de malla zigzag.
+        piezas_union_por_altura = 0
+        if g.altura_efectiva_m > mallas["union_altura_umbral_m"]:
+            piezas_union_por_altura = math.ceil(
+                g.ml_muros_total * g.niveles / mallas["union_largo_pieza_m"]
+            ) * mallas["union_lados"]
+        piezas_union_por_cortes = math.ceil(
             g.n_paneles_muro * mallas["union_fraccion_paneles_cortados"]
             * mallas["union_lados"]
         )
+        piezas_union = piezas_union_por_altura + piezas_union_por_cortes
 
         partidas += [
             Partida("Muros", "Malla zigzag en vanos",
@@ -314,7 +330,7 @@ class MotorQTO:
                      f"puerta 215x90 cm)"
                      + (f"; ESCALADO a ventana real {g.ancho_ventana_m:.2f}x{g.alto_ventana_m:.2f} m "
                         f"(factor {g.factor_escala_ventana:.2f}x, extrapolación por perímetro, "
-                        f"no una fórmula documentada)"
+                        f"no una fórmula documentada verificada)"
                         if g.factor_escala_ventana != 1.0 else "")
                      + (f"; ESCALADO a puerta real {g.ancho_puerta_m:.2f}x{g.alto_puerta_m:.2f} m "
                         f"(factor {g.factor_escala_puerta:.2f}x)"
@@ -326,10 +342,17 @@ class MotorQTO:
                     f"({g.esquinas_efectivas} esquinas x {g.altura_efectiva_m} m) / 2.40 m",
                     "pza", piezas_esquinera, self._desp("mallas"),
                     "Malla_esquinera_pieza", self._precio("Malla_esquinera_pieza")),
-            Partida("Muros", "Malla de unión en cortes",
-                    "Tira de 10 cm x 2.40 m, ambos lados, en cortes de panel",
+            Partida("Muros", "Malla de unión",
+                    (f"Tira de 10 cm x 2.40 m, ambos lados. "
+                     + (f"Costura horizontal por altura > {mallas['union_altura_umbral_m']} m "
+                        f"({piezas_union_por_altura} pzas, [doc] video 'Cuantificación de "
+                        f"Materiales') + "
+                        if piezas_union_por_altura > 0 else "")
+                     + f"cortes de panel ({piezas_union_por_cortes} pzas, [supuesto] "
+                       f"{mallas['union_fraccion_paneles_cortados']*100:.0f}% de paneles cortados)"),
                     "pza", piezas_union, self._desp("mallas"),
-                    "Malla_union_pieza", self._precio("Malla_union_pieza"), "[supuesto]"),
+                    "Malla_union_pieza", self._precio("Malla_union_pieza"),
+                    "[doc]" if piezas_union_por_altura > 0 else "[supuesto]"),
         ]
 
         # --- anclas -------------------------------------------------------
@@ -470,11 +493,14 @@ class MotorQTO:
         modo = "lanzadora neumática" if self.aplanado_mecanizado else "manual"
         area_aplanado = g.area_muros_m2 * 2
 
-        return [
+        partidas = [
+            # [doc] "Armado de muros: cuadrilla (1 oficial + 2 ayudantes)
+            # rinde 18 m²/jornada" (video "Costos del sistema Covintec",
+            # NotebookLM del usuario). Antes: 45.0 [supuesto], sin fuente.
             Partida("Mano de obra", "Montaje de panel",
                     f"Rendimiento {mo['montaje_panel_m2_dia']} m²/día",
                     "jornal", self._jornal(g.area_muros_m2, mo["montaje_panel_m2_dia"]),
-                    0.0, "MO_jornal_dia", jornal, "[supuesto]"),
+                    0.0, "MO_jornal_dia", jornal),
             Partida("Mano de obra", f"Aplanado ({modo})",
                     f"{area_aplanado:.0f} m² a {rendimiento_aplanado} m²/día",
                     "jornal", self._jornal(area_aplanado, rendimiento_aplanado),
@@ -483,12 +509,28 @@ class MotorQTO:
                     f"Rendimiento {mo['cimentacion_m2_dia']} m²/día",
                     "jornal", self._jornal(g.area_cimentacion_m2, mo["cimentacion_m2_dia"]),
                     0.0, "MO_jornal_dia", jornal, "[supuesto]"),
+            # [doc] "Armado de losa (Qualylosa): rendimiento de 15 m²/jornada"
+            # (video "Costos del sistema Covintec"). Antes: 30.0 [supuesto].
             Partida("Mano de obra", "Losas",
                     f"Rendimiento {mo['losa_m2_dia']} m²/día",
                     "jornal",
                     self._jornal(g.area_losa_azotea_m2 + g.area_losa_entrepiso_m2, mo["losa_m2_dia"]),
-                    0.0, "MO_jornal_dia", jornal, "[supuesto]"),
+                    0.0, "MO_jornal_dia", jornal),
         ]
+
+        # [doc] "Herramienta menor: 3%" del costo de mano de obra (video
+        # "Costos del sistema Covintec", citando Art. 185 de la Ley de Obras
+        # Públicas: Costo Directo = materiales + mano de obra + herramienta).
+        # Antes: ausente del modelo por completo.
+        subtotal_mo = sum(p.cantidad_neta * p.precio_unitario for p in partidas)
+        partidas.append(
+            Partida("Mano de obra", "Herramienta menor",
+                    f"{mo['herramienta_menor_pct']*100:.0f}% del costo de mano de obra "
+                    f"(desgaste de herramienta, no incluido en los jornales)",
+                    "global", 1.0, 0.0, "MO_jornal_dia",
+                    subtotal_mo * mo["herramienta_menor_pct"])
+        )
+        return partidas
 
     # ==================================================================
     # API PÚBLICA

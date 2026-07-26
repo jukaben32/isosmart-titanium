@@ -518,3 +518,93 @@ def test_cuadrilla_de_tres_personas_esta_documentada_no_es_arbitraria():
     tablas de rendimiento APU para aplanado/repello (1 Albañil + 1 Ayudante +
     1 Peón), no a un número elegido al azar."""
     assert P["mano_obra"]["cuadrilla_personas"] == 3
+
+
+# ===========================================================================
+# NotebookLM del usuario: videos #37, #42, #20/34 (2026-07-26)
+# ===========================================================================
+
+def test_rendimientos_de_mano_de_obra_actualizados_con_video_de_costos():
+    """
+    Bug: montaje_panel_m2_dia=45.0 y losa_m2_dia=30.0 eran [supuesto] sin
+    ninguna fuente. El video "Costos del sistema Covintec" (NotebookLM del
+    usuario) da los rendimientos reales de cuadrilla:
+    - Armado de muros: cuadrilla (1 oficial + 2 ayudantes) rinde 18 m²/día
+    - Armado de losa (Qualylosa): 15 m²/día
+    Ambos significativamente más lentos que los supuestos anteriores.
+    """
+    assert P["mano_obra"]["montaje_panel_m2_dia"] == pytest.approx(18.0)
+    assert P["mano_obra"]["losa_m2_dia"] == pytest.approx(15.0)
+
+    motor = MotorQTO(geo())
+    montaje = next(p for p in motor.partidas() if p.partida == "Montaje de panel")
+    losas = next(p for p in motor.partidas() if p.partida == "Losas")
+    assert montaje.fuente == "[doc]"
+    assert losas.fuente == "[doc]"
+
+
+def test_herramienta_menor_esta_incluida():
+    """
+    El video de costos cita el Art. 185 de la Ley de Obras Públicas: el
+    Costo Directo incluye materiales + mano de obra + herramienta. La
+    herramienta menor (3% de mano de obra) estaba completamente ausente.
+    """
+    motor = MotorQTO(geo())
+    nombres_mo = {p.partida for p in motor.partidas() if p.categoria == "Mano de obra"}
+    assert "Herramienta menor" in nombres_mo
+
+    herramienta = next(p for p in motor.partidas() if p.partida == "Herramienta menor")
+    otras_mo = [p for p in motor.partidas()
+               if p.categoria == "Mano de obra" and p.partida != "Herramienta menor"]
+    subtotal_otras = sum(p.subtotal for p in otras_mo)
+
+    assert herramienta.subtotal == pytest.approx(subtotal_otras * 0.03, rel=1e-6)
+
+
+def test_capa_de_compresion_azotea_corroborada_por_dos_fuentes():
+    """
+    La ronda anterior había bajado esto a 3.5cm citando una ficha de
+    producto específica del Manual Técnico Covintec. El video de
+    cuantificación ("4 a 5 cm en azoteas") corrobora el rango original de
+    BASE_TECNICA_EPS_ICF.md (5cm) con una fuente independiente -- se revierte
+    al punto medio del rango confirmado (4.5cm) en vez del dato de ficha de
+    producto, más estrecho.
+    """
+    assert P["espesores"]["losa_azotea_m"] == pytest.approx(0.045)
+
+
+def test_formula_de_vano_no_estandar_no_se_desplego_sin_verificar():
+    """
+    Se intentó implementar la fórmula literal del video de cuantificación
+    para vanos no estándar (perímetro + excedente diagonal), pero produjo
+    un resultado físicamente implausible: MENOS piezas de malla para una
+    ventana MÁS GRANDE. No se desplegó una fórmula sin poder verificar que
+    tiene sentido físico -- se mantiene la extrapolación conservadora
+    (monótona) de la ronda anterior mientras se verifica con un ejemplo
+    numérico resuelto.
+    """
+    grande = geo(ancho_ventana_m=1.5, alto_ventana_m=1.2)
+    pequena = geo(ancho_ventana_m=0.6, alto_ventana_m=0.6)
+
+    assert grande.factor_escala_ventana > pequena.factor_escala_ventana, (
+        "una ventana más grande nunca debe implicar menos malla que una más chica"
+    )
+
+
+def test_malla_union_incluye_la_condicion_de_altura():
+    """
+    Video de cuantificación: "malla unión necesaria cuando la altura del
+    muro supera los 2.44 m". La altura por defecto del proyecto (2.80 m)
+    supera ese umbral, así que la costura horizontal debe estar presente.
+    """
+    motor = MotorQTO(geo(altura_muro_m=2.80))
+    union = next(p for p in motor.partidas() if "unión" in p.partida.lower())
+    assert union.fuente == "[doc]"
+    assert "2.44" in union.detalle
+
+
+def test_malla_union_sin_condicion_de_altura_para_muros_bajos():
+    """Con un muro de 2.2m (bajo el umbral de 2.44m), no debería activarse esa costura."""
+    motor = MotorQTO(geo(altura_muro_m=2.2))
+    union = next(p for p in motor.partidas() if "unión" in p.partida.lower())
+    assert union.fuente == "[supuesto]"  # solo queda la fracción de cortes, sin la costura
