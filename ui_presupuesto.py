@@ -192,6 +192,16 @@ def pagina_presupuesto_detallado():
                                  value=float(st.session_state.get("calc_altura_muro_m", 2.8)), step=0.1)
         niveles = st.number_input("Niveles", min_value=1, max_value=20,
                                   value=int(st.session_state.get("calc_niveles", 1)))
+        # Antes ausente de la interfaz: una casa en L (6 esquinas típicas,
+        # 4 convexas + 2 cóncavas) se calculaba siempre con 4 esquinas por
+        # defecto, sin manera de corregirlo. Verificado con NotebookLM del
+        # usuario: esquinas entrantes y salientes reciben el mismo
+        # tratamiento (una tira interna + una externa cada una), así que
+        # solo hace falta el conteo total, no distinguir el tipo.
+        esquinas = st.number_input("Número de esquinas", min_value=4, max_value=20, value=4,
+                                   help="4 para una planta rectangular simple. Una casa en L "
+                                        "típica tiene 6 (4 convexas + 2 cóncavas); ambos tipos "
+                                        "llevan el mismo tratamiento de malla esquinera.")
 
         st.markdown("### ⚙️ Configuración")
         sistema = st.selectbox("Sistema", ["Paneles Isotex", "ICF Proform"])
@@ -223,6 +233,7 @@ def pagina_presupuesto_detallado():
         perimetro_m=perimetro or None,
         altura_muro_m=altura,
         niveles=int(niveles),
+        esquinas=int(esquinas),
         ancho_ventana_m=ancho_ventana,
         alto_ventana_m=alto_ventana,
         ancho_puerta_m=ancho_puerta,

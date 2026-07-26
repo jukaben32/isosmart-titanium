@@ -167,6 +167,12 @@ mallas:
   # NO ceil(2.80*2/2.40)=3, que subestimaría). También se añaden a las
   # uniones entre muro y losa (video #37), un uso que antes no estaba
   # modelado en absoluto.
+  # [doc] VERIFICADO con NotebookLM del usuario: esquinas entrantes
+  # (cóncavas, ej. el interior de una "L") y salientes (convexas) reciben
+  # el MISMO tratamiento -- una tira interna y una externa por cada
+  # esquina, sin importar el tipo. No hace falta distinguirlas en el
+  # conteo; `Geometria.esquinas` ya admite indicar el total real
+  # (ej. 6 para una casa en L simple) en vez del default de 4.
   esquinera_largo_pieza_m: 2.40
   # [doc] malla unión: 10 cm x 2.40 m, ambos lados. Video #37: "necesarias
   # cuando la altura del muro supera los 2.44 m, o en cortes donde no existe

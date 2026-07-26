@@ -699,3 +699,33 @@ def test_malla_esquinera_incluye_uniones_muro_losa():
     interna = next(p for p in motor.partidas() if p.partida == "Malla esquinera interna")
     assert "unión" in interna.detalle.lower() or "union" in interna.detalle.lower()
     assert "muro-losa" in interna.detalle
+
+
+def test_union_muro_losa_reproduce_el_ejemplo_de_la_habitacion():
+    """
+    VERIFICADO con ejemplo numérico resuelto: habitación de 5x4 m
+    (perímetro 18 ml) -> ceil(18/2.40) = 8 tiras de malla esquinera
+    interna en la unión muro-losa.
+    """
+    motor = MotorQTO(geo(area_m2=20, perimetro_m=18, niveles=1))
+    piezas_esperadas = math.ceil(18 / 2.40)
+    assert piezas_esperadas == 8
+
+    interna = next(p for p in motor.partidas() if p.partida == "Malla esquinera interna")
+    # La partida incluye también las esquinas propiamente dichas; se
+    # verifica que el componente de unión (perímetro/2.40) esté presente.
+    assert interna.cantidad_neta >= piezas_esperadas
+
+
+def test_esquinas_concavas_y_convexas_reciben_el_mismo_tratamiento():
+    """
+    VERIFICADO: no hace falta distinguir esquinas entrantes (cóncavas) de
+    salientes (convexas) -- ambas llevan una tira interna y una externa.
+    Una casa en L (6 esquinas típicas) simplemente usa un conteo mayor.
+    """
+    rectangular = MotorQTO(geo(esquinas=4))
+    forma_l = MotorQTO(geo(esquinas=6))
+
+    interna_rect = next(p for p in rectangular.partidas() if p.partida == "Malla esquinera interna")
+    interna_l = next(p for p in forma_l.partidas() if p.partida == "Malla esquinera interna")
+    assert interna_l.cantidad_neta > interna_rect.cantidad_neta

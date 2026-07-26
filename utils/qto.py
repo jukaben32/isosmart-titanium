@@ -311,15 +311,21 @@ class MotorQTO:
         piezas_esquinera_interna = piezas_por_esquina_por_tipo * n_esquinas_total
         piezas_esquinera_externa = piezas_por_esquina_por_tipo * n_esquinas_total
 
-        # [doc] video "Cuantificación de Materiales": la esquinera "también
-        # se debe incluir en las uniones entre muro y losa" -- una tira por
-        # cada metro lineal de unión (mismo largo de pieza, 2.40m). Antes
-        # ausente del modelo.
+        # [doc] VERIFICADO con ejemplo numérico resuelto por el usuario
+        # (video #37): una habitación de 5x4 m (perímetro 18 ml) da
+        # ceil(18/2.40)=8 piezas -- coincide exacto con esta fórmula.
+        # Malla interna: 100% del perímetro de unión, siempre.
+        # Malla externa en la unión: SOLO si la losa queda "a paño" (al ras
+        # del muro exterior); con volado/marquesina el tratamiento exterior
+        # cambia. Sin un parámetro de volado en Geometria, se asume "a
+        # paño" (caso más común en vivienda residencial dominicana) -- si
+        # el proyecto real tiene volado, esta partida de malla externa en
+        # la unión debe ajustarse manualmente.
         piezas_esquinera_union_losa = math.ceil(
             g.ml_muros_total * g.niveles / mallas["esquinera_largo_pieza_m"]
         )
         piezas_esquinera_interna += piezas_esquinera_union_losa
-        piezas_esquinera_externa += piezas_esquinera_union_losa
+        piezas_esquinera_externa += piezas_esquinera_union_losa  # asume losa "a paño"
 
         # [doc] video "Cuantificación de Materiales": "malla unión necesaria
         # cuando la altura del muro supera los 2.44 m, o en cortes donde no
@@ -362,9 +368,10 @@ class MotorQTO:
                     "Malla_esquinera_interna_pieza", self._precio("Malla_esquinera_interna_pieza")),
             Partida("Muros", "Malla esquinera externa",
                     (f"{n_esquinas_total} esquinas x {piezas_por_esquina_por_tipo} pzas "
-                     f"+ {piezas_esquinera_union_losa} pzas en uniones muro-losa. "
-                     f"Cara exterior (producto distinto a la interna: 20x20 cm vs "
-                     f"10x10/14x14 cm, mismo largo de 2.40 m)."),
+                     f"+ {piezas_esquinera_union_losa} pzas en uniones muro-losa (asume losa "
+                     f"\"a paño\", sin volado/marquesina -- verificar si aplica). "
+                     f"Producto distinto a la interna: 20x20 cm vs 10x10/14x14 cm, "
+                     f"mismo largo de 2.40 m."),
                     "pza", piezas_esquinera_externa, self._desp("mallas"),
                     "Malla_esquinera_externa_pieza", self._precio("Malla_esquinera_externa_pieza")),
             Partida("Muros", "Malla de unión",
