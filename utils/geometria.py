@@ -178,39 +178,48 @@ class Geometria:
     _REF_PUERTA_M = (0.90, 2.15)
 
     @property
-    def factor_escala_ventana(self) -> float:
-        """
-        >1 si las ventanas del proyecto son más grandes que el vano de
-        referencia del documento (90x90 cm); 1.0 si se usa el default.
-
-        NOTA (revisión de precisión con NotebookLM del usuario): el video
-        "Cuantificación de Materiales" describe una fórmula para vanos no
-        estándar ("perímetro del vano + excedente diagonal de 30-40 cm en
-        cada esquina, x2 lados, /1.22 m"). Al implementarla literalmente
-        dio un resultado físicamente implausible: MENOS piezas para una
-        ventana MÁS GRANDE (5.6 pzas para 1.5x1.2 m vs. 12 pzas para la
-        referencia de 90x90 cm) -- un resumen de video puede haber
-        comprimido un detalle importante (quizás "excedente diagonal" son
-        piezas de refuerzo adicionales en la esquina, no centímetros
-        sumados al perímetro). No se despliega una fórmula sin poder
-        verificar que tiene sentido físico, así que se mantiene esta
-        extrapolación por proporción de perímetro ([supuesto], pero al
-        menos monótona: vano más grande -> más malla, nunca menos).
-        Pendiente: pedir al NotebookLM un ejemplo numérico resuelto de esa
-        fórmula para poder verificarla antes de reemplazar esto.
-        """
+    def _es_ventana_referencia(self) -> bool:
         ancho_ref, alto_ref = self._REF_VENTANA_M
-        perimetro_real = 2 * (self.ancho_ventana_m + self.alto_ventana_m)
-        perimetro_ref = 2 * (ancho_ref + alto_ref)
-        return perimetro_real / perimetro_ref
+        return math.isclose(self.ancho_ventana_m, ancho_ref) and math.isclose(self.alto_ventana_m, alto_ref)
 
     @property
-    def factor_escala_puerta(self) -> float:
-        """Análogo a `factor_escala_ventana`, para el vano de puerta (90x215 cm)."""
+    def _es_puerta_referencia(self) -> bool:
         ancho_ref, alto_ref = self._REF_PUERTA_M
-        perimetro_real = 2 * (self.ancho_puerta_m + self.alto_puerta_m)
-        perimetro_ref = 2 * (ancho_ref + alto_ref)
-        return perimetro_real / perimetro_ref
+        return math.isclose(self.ancho_puerta_m, ancho_ref) and math.isclose(self.alto_puerta_m, alto_ref)
+
+    def piezas_zigzag_por_ventana(self, piezas_referencia: int, excedente_diagonal_m: float,
+                                  lados: int = 2) -> int:
+        """
+        Piezas de malla zigzag necesarias por ventana, AMBAS CARAS incluidas.
+
+        VERIFICADO con un ejemplo numérico resuelto por el usuario (video
+        "Cuantificación de Materiales", NotebookLM): para una ventana de
+        1.5x1.2 m con excedente de 40 cm/esquina, el método da exactamente
+        12 piezas -- confirmado paso a paso:
+            perímetro (5.4 m) + 4 esquinas x 0.40 m (1.6 m) = 7.0 m por cara
+            7.0 m x 2 caras = 14.0 m -> 14.0 / 1.22 m = 11.47 -> redondeo: 12
+
+        Para el vano de referencia (90x90 cm) se usa el conteo empírico
+        documentado directamente: el propio video aclara que, para vanos
+        menores a 1.22 m, se asigna una pieza completa por lado del marco
+        en ambas caras (4 lados x 2 caras = 8) más 4 piezas diagonales = 12
+        -- una regla distinta a la de metros lineales que, para ese tamaño
+        puntual, coincide en el mismo resultado.
+        """
+        if self._es_ventana_referencia:
+            return int(piezas_referencia)
+        perimetro = 2 * (self.ancho_ventana_m + self.alto_ventana_m)
+        total_ambas_caras = (perimetro + 4 * excedente_diagonal_m) * lados
+        return math.ceil(total_ambas_caras / 1.22)
+
+    def piezas_zigzag_por_puerta(self, piezas_referencia: int, excedente_diagonal_m: float,
+                                 lados: int = 2) -> int:
+        """Análogo a `piezas_zigzag_por_ventana`, para el vano de puerta."""
+        if self._es_puerta_referencia:
+            return int(piezas_referencia)
+        perimetro = 2 * (self.ancho_puerta_m + self.alto_puerta_m)
+        total_ambas_caras = (perimetro + 4 * excedente_diagonal_m) * lados
+        return math.ceil(total_ambas_caras / 1.22)
 
     @property
     def n_banos(self) -> int:

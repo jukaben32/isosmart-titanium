@@ -130,13 +130,22 @@ def test_losa_azotea_usa_5_cm():
 
 
 def test_mallas_siguen_las_formulas_del_documento():
-    """[doc] ventana 90x90 = 12 pzas; puerta = 13 pzas; AMBOS LADOS (x2)."""
+    """
+    [doc] ventana 90x90 = 12 pzas; puerta = 13 pzas -- AMBAS CARAS incluidas.
+
+    CORREGIDO (verificado con NotebookLM del usuario): el motor venía
+    multiplicando estos conteos por 2 otra vez ("zigzag_lados"), duplicando
+    la partida. El propio video que dio el ejemplo numérico resuelto aclara
+    que 12/13 YA es el total de ambas caras (4 lados x 2 caras = 8 + 4
+    diagonales = 12), no un valor "por cara" que haya que doblar.
+    """
     g = geo(ventanas=6, puertas_exteriores=2, puertas_interiores=5)
     motor = MotorQTO(g)
     zigzag = next(p for p in motor.partidas() if p.partida == "Malla zigzag en vanos")
 
-    esperado = (6 * 12 + 7 * 13) * 2
+    esperado = 6 * 12 + 7 * 13  # antes: esto x 2 (326), ahora: sin duplicar (163)
     assert zigzag.cantidad_neta == esperado
+    assert zigzag.cantidad_neta == 163
 
     esquinera = next(p for p in motor.partidas() if p.partida == "Malla esquinera")
     assert esquinera.cantidad_neta == math.ceil(4 * 2.8 / 2.40)
@@ -401,37 +410,56 @@ def test_malla_zigzag_advierte_sobre_el_tamano_de_vano_asumido():
 
 def test_vanos_de_tamano_por_defecto_no_cambian_el_comportamiento_anterior():
     """
-    Sin dimensiones de vano indicadas, el resultado debe ser IDÉNTICO al que
-    daba la fórmula original (factor de escala 1.0, vano de referencia).
+    Sin dimensiones de vano indicadas, el resultado debe usar el conteo de
+    referencia documentado (12/13, ya con ambas caras incluidas).
     """
     g = geo()
-    assert g.factor_escala_ventana == 1.0
-    assert g.factor_escala_puerta == 1.0
+    assert g._es_ventana_referencia
+    assert g._es_puerta_referencia
+    assert g.piezas_zigzag_por_ventana(12, 0.40, 2) == 12
+    assert g.piezas_zigzag_por_puerta(13, 0.40, 2) == 13
+
+
+def test_formula_de_vano_no_estandar_verificada_con_ejemplo_resuelto():
+    """
+    VERIFICADO con un ejemplo numérico resuelto por el usuario (video
+    "Cuantificación de Materiales", NotebookLM): una ventana de 1.5x1.2 m
+    con excedente de 40 cm/esquina da EXACTAMENTE 12 piezas.
+
+        perímetro (5.4 m) + 4 x 0.40 m (1.6 m) = 7.0 m por cara
+        7.0 m x 2 caras = 14.0 m -> 14.0 / 1.22 m = 11.47 -> redondeo: 12
+
+    Un intento anterior de implementar esta fórmula dio un resultado
+    físicamente implausible por un error de comparación (se comparó el
+    valor de una sola cara contra el conteo de referencia, que ya incluye
+    ambas). Con el ejemplo resuelto, la fórmula queda verificada.
+    """
+    g = geo(ancho_ventana_m=1.5, alto_ventana_m=1.2)
+    assert not g._es_ventana_referencia
+    assert g.piezas_zigzag_por_ventana(12, 0.40, 2) == 12
 
 
 def test_ventanas_reales_mas_grandes_aumentan_la_malla_zigzag():
-    """
-    Bug potencial: la fórmula (12/13 piezas) está calibrada para vanos de
-    90x90/215x90 cm. Una ventana típica dominicana de 1.5x1.2 m es bastante
-    más grande; la malla debía quedarse corta en silencio.
-    """
+    """Una ventana bastante más grande que la de referencia sí debe pedir más malla."""
     referencia = MotorQTO(geo())
-    grande = MotorQTO(geo(ancho_ventana_m=1.5, alto_ventana_m=1.2))
+    grande = MotorQTO(geo(ancho_ventana_m=2.5, alto_ventana_m=2.0))
 
     zz_ref = next(p for p in referencia.partidas() if p.partida == "Malla zigzag en vanos")
     zz_grande = next(p for p in grande.partidas() if p.partida == "Malla zigzag en vanos")
 
     assert zz_grande.cantidad_neta > zz_ref.cantidad_neta
-    assert zz_grande.fuente == "[supuesto]"  # ya no es la fórmula literal del doc
-    assert zz_ref.fuente == "[doc]"          # con el default, sigue siendo la fórmula exacta
+    assert zz_ref.fuente == "[doc]"
+    assert zz_grande.fuente == "[doc]"  # la fórmula para vano no estándar también es [doc], ya verificada
 
 
-def test_factor_de_escala_es_proporcional_al_perimetro_del_vano():
-    """El factor de escala debe ser el cociente de perímetros, no de áreas."""
-    g = geo(ancho_ventana_m=1.8, alto_ventana_m=1.8)  # el doble en cada lado
-    perimetro_ref = 2 * (0.90 + 0.90)
-    perimetro_real = 2 * (1.8 + 1.8)
-    assert g.factor_escala_ventana == pytest.approx(perimetro_real / perimetro_ref)
+def test_formula_de_vano_es_monotona_con_el_tamano():
+    """Una ventana más grande nunca debe implicar menos malla que una más chica."""
+    chica = geo(ancho_ventana_m=1.0, alto_ventana_m=1.0)
+    grande = geo(ancho_ventana_m=2.0, alto_ventana_m=2.0)
+
+    piezas_chica = chica.piezas_zigzag_por_ventana(12, 0.40, 2)
+    piezas_grande = grande.piezas_zigzag_por_ventana(12, 0.40, 2)
+    assert piezas_grande > piezas_chica
 
 
 # ===========================================================================
@@ -573,22 +601,16 @@ def test_capa_de_compresion_azotea_corroborada_por_dos_fuentes():
     assert P["espesores"]["losa_azotea_m"] == pytest.approx(0.045)
 
 
-def test_formula_de_vano_no_estandar_no_se_desplego_sin_verificar():
+def test_formula_de_vano_no_estandar_esta_desplegada_y_verificada():
     """
-    Se intentó implementar la fórmula literal del video de cuantificación
-    para vanos no estándar (perímetro + excedente diagonal), pero produjo
-    un resultado físicamente implausible: MENOS piezas de malla para una
-    ventana MÁS GRANDE. No se desplegó una fórmula sin poder verificar que
-    tiene sentido físico -- se mantiene la extrapolación conservadora
-    (monótona) de la ronda anterior mientras se verifica con un ejemplo
-    numérico resuelto.
+    Contraparte del intento anterior: con el ejemplo numérico resuelto por
+    el usuario, la fórmula quedó verificada y SÍ se desplegó (antes se
+    había mantenido la extrapolación conservadora por no poder confirmar
+    que la fórmula tenía sentido físico).
     """
-    grande = geo(ancho_ventana_m=1.5, alto_ventana_m=1.2)
-    pequena = geo(ancho_ventana_m=0.6, alto_ventana_m=0.6)
-
-    assert grande.factor_escala_ventana > pequena.factor_escala_ventana, (
-        "una ventana más grande nunca debe implicar menos malla que una más chica"
-    )
+    motor = MotorQTO(geo(ancho_ventana_m=1.5, alto_ventana_m=1.2))
+    zigzag = next(p for p in motor.partidas() if p.partida == "Malla zigzag en vanos")
+    assert "verificado con ejemplo numérico resuelto" in zigzag.detalle
 
 
 def test_malla_union_incluye_la_condicion_de_altura():

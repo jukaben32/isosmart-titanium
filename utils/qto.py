@@ -284,34 +284,33 @@ class MotorQTO:
         ]
 
         # --- mallas de refuerzo -------------------------------------------
-        # [doc] la fórmula (12/13 piezas por vano, x2 lados) está calibrada
-        # para los vanos de referencia del documento (ventana 90x90,
-        # puerta 215x90). Para vanos más grandes se escala por la
-        # proporción de perímetro contra el vano de referencia
-        # ([supuesto] -- ver Geometria.factor_escala_ventana para la nota
-        # completa sobre por qué no se usó la fórmula literal del video de
-        # NotebookLM, que dio un resultado físicamente implausible).
-        piezas_zigzag_base = (
-            g.n_ventanas * mallas["zigzag_piezas_por_ventana"] * g.factor_escala_ventana
-            + g.n_puertas_total * mallas["zigzag_piezas_por_puerta"] * g.factor_escala_puerta
-        )
-        piezas_zigzag = piezas_zigzag_base * mallas["zigzag_lados"]
+        # [doc] VERIFICADO con ejemplo numérico resuelto por el usuario
+        # (video "Cuantificación de Materiales", NotebookLM): para vano de
+        # referencia, conteo empírico documentado (12/13 piezas); para vano
+        # no estándar, (perímetro + 4 x excedente diagonal) x 2 caras / 1.22,
+        # redondeado hacia arriba POR VANO (no se puede compartir una pieza
+        # fraccionaria entre dos ventanas distintas). Ver
+        # Geometria.piezas_zigzag_por_ventana/puerta para el detalle.
+        piezas_por_ventana = g.piezas_zigzag_por_ventana(
+            mallas["zigzag_piezas_por_ventana"], mallas["zigzag_excedente_diagonal_m"],
+            mallas["zigzag_lados"])
+        piezas_por_puerta = g.piezas_zigzag_por_puerta(
+            mallas["zigzag_piezas_por_puerta"], mallas["zigzag_excedente_diagonal_m"],
+            mallas["zigzag_lados"])
+        piezas_zigzag = g.n_ventanas * piezas_por_ventana + g.n_puertas_total * piezas_por_puerta
 
         piezas_esquinera = math.ceil(
             g.esquinas_efectivas * g.altura_efectiva_m * g.niveles
             / mallas["esquinera_largo_pieza_m"]
         )
 
-        # [doc] video "Cuantificación de Materiales" (NotebookLM del
-        # usuario): "malla unión necesaria cuando la altura del muro supera
-        # los 2.44 m, o en cortes donde no existe la pestaña de
-        # autoensamble". Antes solo se estimaba por una fracción arbitraria
-        # de paneles cortados ([supuesto]); ahora se suma la condición real
-        # de altura (aplicada a lo largo de todo el muro, en la costura
-        # horizontal donde el panel se extiende más allá de 2.44 m) como un
-        # segundo motivo documentado. Esta condición SÍ es una simple
-        # comparación de umbral, sin la ambigüedad de traducción que tuvo
-        # la fórmula de malla zigzag.
+        # [doc] video "Cuantificación de Materiales": "malla unión necesaria
+        # cuando la altura del muro supera los 2.44 m, o en cortes donde no
+        # existe la pestaña de autoensamble". Antes solo se estimaba por una
+        # fracción arbitraria de paneles cortados ([supuesto]); ahora se
+        # suma la condición real de altura (aplicada a lo largo de todo el
+        # muro, en la costura horizontal donde el panel se extiende más
+        # allá de 2.44 m) como un segundo motivo documentado.
         piezas_union_por_altura = 0
         if g.altura_efectiva_m > mallas["union_altura_umbral_m"]:
             piezas_union_por_altura = math.ceil(
@@ -325,19 +324,16 @@ class MotorQTO:
 
         partidas += [
             Partida("Muros", "Malla zigzag en vanos",
-                    (f"{g.n_ventanas} ventanas x 12 pzas + {g.n_puertas_total} puertas x 13 pzas, "
-                     f"ambos lados. Calibrado para vanos de referencia (ventana 90x90 cm, "
-                     f"puerta 215x90 cm)"
-                     + (f"; ESCALADO a ventana real {g.ancho_ventana_m:.2f}x{g.alto_ventana_m:.2f} m "
-                        f"(factor {g.factor_escala_ventana:.2f}x, extrapolación por perímetro, "
-                        f"no una fórmula documentada verificada)"
-                        if g.factor_escala_ventana != 1.0 else "")
-                     + (f"; ESCALADO a puerta real {g.ancho_puerta_m:.2f}x{g.alto_puerta_m:.2f} m "
-                        f"(factor {g.factor_escala_puerta:.2f}x)"
-                        if g.factor_escala_puerta != 1.0 else "")),
+                    (f"{g.n_ventanas} ventanas x {piezas_por_ventana} pzas + "
+                     f"{g.n_puertas_total} puertas x {piezas_por_puerta} pzas (ambas caras incluidas). "
+                     + (f"Vano(s) de referencia (90x90 cm ventana, 215x90 cm puerta): "
+                        f"conteo empírico documentado."
+                        if g._es_ventana_referencia and g._es_puerta_referencia else
+                        f"Vano(s) no estándar: (perímetro + 4x{mallas['zigzag_excedente_diagonal_m']*100:.0f}cm) "
+                        f"x2 caras / 1.22 m -- verificado con ejemplo numérico resuelto "
+                        f"(video 'Cuantificación de Materiales').")),
                     "pza", piezas_zigzag, self._desp("mallas"),
-                    "Malla_zigzag_pieza", self._precio("Malla_zigzag_pieza"),
-                    "[doc]" if g.factor_escala_ventana == g.factor_escala_puerta == 1.0 else "[supuesto]"),
+                    "Malla_zigzag_pieza", self._precio("Malla_zigzag_pieza")),
             Partida("Muros", "Malla esquinera",
                     f"({g.esquinas_efectivas} esquinas x {g.altura_efectiva_m} m) / 2.40 m",
                     "pza", piezas_esquinera, self._desp("mallas"),
