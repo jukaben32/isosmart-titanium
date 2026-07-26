@@ -166,6 +166,30 @@ FICHA_ISOTEX_DOMINICANA = {
 
 
 # ---------------------------------------------------------------------------
+# Manual Técnico Panel Covintec 2011 — fuente primaria del fabricante
+# ---------------------------------------------------------------------------
+# Encontrado al verificar el conflicto de anclaje de la ronda anterior.
+# Corroborado en 5 copias independientes con texto idéntico (Scribd,
+# SlideShare, StudyLib, VSIP) -- alta confianza en que es una transcripción
+# fiel del manual técnico real del fabricante mexicano de paneles Covintec
+# (el mismo sistema constructivo EPS + malla que Isotex/Covintex en RD).
+#
+# Resolvió con precisión el conflicto de anclaje (10 cm empotrado + 40 cm
+# libre, no los 5 cm de BASE_TECNICA_EPS_ICF.md ni los 40-50 cm de otra
+# fuente ambigua) y corrigió la resistencia de concreto de la platea de
+# cimentación (200 kg/cm², no 250 kg/cm²).
+FUENTE_MANUAL_TECNICO_COVINTEC_2011 = Fuente(
+    valor="Manual Técnico Panel Covintec 2011",
+    tipo="referencia",
+    cita="Manual técnico oficial del fabricante (México), corroborado en 5 "
+         "copias independientes. Resolvió el conflicto de anclaje "
+         "(10 cm empotrado + 40 cm libre) y la resistencia de la platea "
+         "de cimentación (200 kg/cm²).",
+    url="https://es.scribd.com/document/237263489/Manual-Tecnico-Covintec-2011",
+)
+
+
+# ---------------------------------------------------------------------------
 # Fichas técnicas verificadas — panel Covintec (México)
 # ---------------------------------------------------------------------------
 # Fuente: covintec.com/fichas-tecnicas/ (fichas técnicas oficiales del

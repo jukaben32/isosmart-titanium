@@ -310,19 +310,20 @@ def test_replantillo_es_una_capa_distinta_de_la_plantilla():
 
 def test_cimentacion_usa_la_resistencia_de_concreto_correcta():
     """
-    Bug: la platea de cimentación (250 kg/cm² según el doc) se pagaba con
-    `H_3000_PSI * 1.20`, un multiplicador arbitrario sin fuente, mientras el
-    pricebook YA tenía `H_3500_PSI` (~246 kg/cm², la resistencia disponible
-    más cercana a los 250 kg/cm² requeridos). Ahora usa esa clave
-    directamente en vez de fabricar un precio sintético.
+    Bug: la platea de cimentación se pagaba con `H_3000_PSI * 1.20`, un
+    multiplicador arbitrario sin fuente. Se corrigió inicialmente a
+    H_3500_PSI (250 kg/cm² según BASE_TECNICA_EPS_ICF.md), pero el Manual
+    Técnico Panel Covintec 2011 (fuente primaria del fabricante) especifica
+    200 kg/cm² para esta misma partida -- más cercano a H_3000_PSI
+    (≈211 kg/cm²), no a H_3500_PSI (≈246 kg/cm²).
     """
     from utils.pricebook import DEFAULT_PRICEBOOK
 
     motor = MotorQTO(geo(), DEFAULT_PRICEBOOK)
     platea = next(p for p in motor.partidas() if p.partida == "Losa de cimentación (platea)")
 
-    assert platea.clave_precio == "H_3500_PSI"
-    assert platea.precio_unitario == pytest.approx(DEFAULT_PRICEBOOK["H_3500_PSI"])
+    assert platea.clave_precio == "H_3000_PSI"
+    assert platea.precio_unitario == pytest.approx(DEFAULT_PRICEBOOK["H_3000_PSI"])
 
 
 def test_todas_las_cimentacion_tienen_precio_positivo():
@@ -351,7 +352,7 @@ def test_partidas_sin_formula_del_documento_no_se_marcan_doc():
     partidas_por_nombre = {p.partida: p for p in motor.partidas()}
 
     deben_ser_supuesto = (
-        "Anclas / bastones 3/8\"", "Piso", "Pintura",
+        "Piso", "Pintura",
         "Puertas interiores", "Ventanas de aluminio",
         "Inodoros", "Lavamanos", "Duchas", "Grifería",
         "Gabinetes", "Mesón de granito", "Fregadero",
@@ -374,7 +375,8 @@ def test_partidas_con_formula_real_del_documento_si_se_marcan_doc():
         "Malla zigzag en vanos",        # 12/13 piezas x2, doc sección 4
         "Malla esquinera",              # (esquinas x altura)/2.40, doc sección 4
         "Aplanado (manual)",            # 15-20 m²/día, doc sección 5
-        "Losa de cimentación (platea)",  # 250 kg/cm², doc sección 2
+        "Losa de cimentación (platea)",  # 200 kg/cm², Manual Técnico Covintec 2011
+        "Anclas / bastones 3/8\" (recibidores de cortante en 'U')",  # Manual Técnico Covintec 2011
     )
     for nombre in deben_ser_doc:
         assert partidas_por_nombre[nombre].fuente == "[doc]", nombre
@@ -436,21 +438,45 @@ def test_factor_de_escala_es_proporcional_al_perimetro_del_vano():
 # Conflicto de anclaje documentado (no resuelto por diseño)
 # ===========================================================================
 
-def test_el_conflicto_de_anclaje_esta_documentado_y_visible():
+def test_el_conflicto_de_anclaje_fue_resuelto_con_fuente_primaria():
     """
-    El manual oficial de instalación del fabricante describe barras de
-    arranque a 30 cm / 40-50 cm de empotramiento, mientras
-    BASE_TECNICA_EPS_ICF.md dice 40 cm / 5 cm -- una discrepancia de 8-10x
-    en un elemento de acero estructural. No se resolvió por adivinanza: debe
-    quedar visible tanto en los parámetros como en la partida que ve el
-    usuario.
+    Encontrado en la ronda anterior: BASE_TECNICA_EPS_ICF.md decía "5 cm
+    dentro de cimentación" para las anclas; un manual de instalación
+    distinto mencionaba "40-50 cm de empotramiento" para un elemento sin
+    identificar con certeza -- una discrepancia de 8-10x sin resolver.
+
+    El Manual Técnico Panel Covintec 2011 (fuente PRIMARIA del fabricante,
+    corroborada en 5 copias independientes) lo resuelve con precisión:
+    10 cm empotrados + 40 cm libres hacia el muro. Ninguna de las dos cifras
+    anteriores era correcta tal cual.
     """
     motor = MotorQTO(geo())
     anclas = next(p for p in motor.partidas() if "Anclas" in p.partida)
-    assert "manual oficial" in anclas.detalle.lower()
-    assert "40-50" in anclas.detalle
 
-    assert "fuente_conflicto_url" in P["anclaje"]
+    assert anclas.fuente == "[doc]"
+    assert "10 cm" in anclas.detalle
+    assert "40 cm" in anclas.detalle
+    assert "Manual Técnico" in anclas.detalle
+
+    assert P["anclaje"]["longitud_empotrada_m"] == pytest.approx(0.10)
+    assert P["anclaje"]["longitud_libre_muro_m"] == pytest.approx(0.40)
+    assert P["anclaje"]["longitud_ancla_m"] == pytest.approx(0.50)
+    assert "fuente_manual_tecnico_covintec" in P["anclaje"]
+
+
+def test_dentellon_perimetral_esta_incluido():
+    """
+    Elemento encontrado en el Manual Técnico Panel Covintec 2011 (sección
+    1.3) que no estaba en el modelo: un refuerzo de sección trapezoidal bajo
+    el perímetro de la losa de cimentación.
+    """
+    motor = MotorQTO(geo())
+    nombres = {p.partida for p in motor.partidas() if p.categoria == "Cimentación"}
+    assert "Dentellón perimetral" in nombres
+
+    dentellon = next(p for p in motor.partidas() if p.partida == "Dentellón perimetral")
+    assert dentellon.cantidad_neta > 0
+    assert dentellon.fuente == "[doc]"
 
 
 # ===========================================================================

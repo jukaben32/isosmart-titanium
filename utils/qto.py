@@ -187,6 +187,16 @@ class MotorQTO:
         vol_replantillo = area * esp["replantillo_m"]
         vol_plantilla = area * esp["plantilla_concreto_pobre_m"]
         vol_platea = area * esp["cimentacion_platea_m"] * f_horm
+        # [doc] Manual Técnico Panel Covintec 2011, sección 1.3: "Dentellones
+        # perimetrales en línea de ejes... corona 20 cm, base 15 cm, peralte
+        # 15 cm". Elemento que faltaba por completo -- se detectó al
+        # verificar el manual oficial del fabricante para resolver el
+        # conflicto de anclaje.
+        vol_dentellon = (
+            g.perimetro_efectivo_m
+            * ((esp["dentellon_corona_m"] + esp["dentellon_base_m"]) / 2)  # sección trapezoidal
+            * esp["dentellon_peralte_m"]
+        )
 
         return [
             # [doc] sección 3: "Replantillo (cimentación): capa 12-15 cm de
@@ -213,19 +223,25 @@ class MotorQTO:
                     "m²", area * self.p["mallas"]["electrosoldada_traslape"],
                     self._desp("mallas"), "Malla_Electrosoldada",
                     self._precio("Malla_Electrosoldada"), "[supuesto]"),
-            # [doc] sección 2: "Resistencia cimentación/zapata: 250 kg/cm²".
-            # Antes: `H_3000_PSI * 1.20`, un multiplicador arbitrario sobre el
-            # concreto de losa (≈211 kg/cm², para el requisito de 200 kg/cm²
-            # de losa). H_3500_PSI (≈246 kg/cm²) YA EXISTE en el pricebook y
-            # es la resistencia correcta para cimentación -- se usa
-            # directamente en vez de fabricar un precio sintético con un
-            # multiplicador sin fuente.
+            # [doc] Manual Técnico Panel Covintec 2011: "La losa de
+            # cimentación tendrá 10 cm de espesor" y "Colado de concreto
+            # f'c = 200 kg/cm²". CORREGIDO en esta verificación: la ronda
+            # anterior usaba 12.5 cm y H_3500_PSI (≈246 kg/cm²) basándose en
+            # BASE_TECNICA_EPS_ICF.md ("250 kg/cm²"); el manual oficial del
+            # fabricante -- fuente primaria, corroborada en 5 copias
+            # independientes -- especifica 200 kg/cm² (H_3000_PSI ≈ 211
+            # kg/cm², la coincidencia real).
             Partida("Cimentación", "Losa de cimentación (platea)",
                     f"Concreto {self.p['resistencias']['cimentacion']} kg/cm² "
-                    f"(H_3500_PSI ≈ 246 kg/cm², la resistencia disponible más cercana), "
-                    f"espesor {esp['cimentacion_platea_m']*100:.1f} cm",
+                    f"(H_3000_PSI ≈ 211 kg/cm²), espesor {esp['cimentacion_platea_m']*100:.0f} cm",
                     "m³", vol_platea, self._desp("concreto"),
-                    "H_3500_PSI", self._precio("H_3500_PSI")),
+                    "H_3000_PSI", self._precio("H_3000_PSI")),
+            Partida("Cimentación", "Dentellón perimetral",
+                    f"Sección trapezoidal (corona {esp['dentellon_corona_m']*100:.0f} cm, "
+                    f"base {esp['dentellon_base_m']*100:.0f} cm, peralte "
+                    f"{esp['dentellon_peralte_m']*100:.0f} cm) bajo el perímetro de la losa",
+                    "m³", vol_dentellon, self._desp("concreto"),
+                    "H_3000_PSI", self._precio("H_3000_PSI")),
         ]
 
     def _muros(self) -> list[Partida]:
@@ -322,15 +338,15 @@ class MotorQTO:
                      * anclaje["peso_varilla_3_8_kg_por_m"]
                      * self._factores_zona["acero"])
         partidas.append(
-            Partida("Muros", "Anclas / bastones 3/8\"",
-                    f"{n_anclas} anclas (3 por panel, cada {anclaje['separacion_m']*100:.0f} cm), "
-                    f"5 cm dentro de cimentación (longitud total de ancla: supuesto). "
-                    f"⚠️ El manual oficial de instalación del fabricante describe barras "
-                    f"de arranque a 30 cm con 40-50 cm de empotramiento -- posible refuerzo "
-                    f"ADICIONAL no incluido aquí. Ver data/parametros_tecnicos.yaml::anclaje "
-                    f"para el conflicto sin resolver; confirmar con ingeniero estructural.",
+            Partida("Muros", "Anclas / bastones 3/8\" (recibidores de cortante en 'U')",
+                    f"{n_anclas} anclas cada {anclaje['separacion_m']*100:.0f} cm: "
+                    f"{anclaje['longitud_empotrada_m']*100:.0f} cm empotrados en la losa de "
+                    f"cimentación + {anclaje['longitud_libre_muro_m']*100:.0f} cm libres hacia "
+                    f"el muro. Conflicto de fuentes RESUELTO con el Manual Técnico Panel "
+                    f"Covintec 2011 (fuente primaria del fabricante): antes se usaba 5 cm "
+                    f"empotrados, de BASE_TECNICA_EPS_ICF.md.",
                     "kg", kg_anclas, self._desp("acero"),
-                    "Acero_Varilla", self._precio("Acero_Varilla"), "[supuesto]")
+                    "Acero_Varilla", self._precio("Acero_Varilla"))
         )
         return partidas
 
