@@ -159,9 +159,14 @@ mallas:
   # usa 0.40 m (el extremo superior) explícitamente, así que se usa ese
   # valor exacto en vez de un punto medio.
   zigzag_excedente_diagonal_m: 0.40
-  # [doc] malla esquinera: (nº esquinas x altura muro) / 2.40 m. Video #37
-  # añade: "también se deben incluir en las uniones entre muro y losa"
-  # -- un supuesto adicional de la esquinera aún no modelado (pendiente).
+  # [doc] VERIFICADO con NotebookLM del usuario: son DOS productos
+  # distintos por esquina, no una malla que se dobla -- interna (10x10 o
+  # 14x14 cm x 2.40 m) y externa (20x20 cm x 2.40 m). El redondeo se hace
+  # POR ESQUINA Y POR TIPO: ceil(altura / 2.40), nunca en agregado (ejemplo
+  # resuelto: esquina de 2.80 m -> ceil(2.80/2.40)=2 piezas de cada tipo,
+  # NO ceil(2.80*2/2.40)=3, que subestimaría). También se añaden a las
+  # uniones entre muro y losa (video #37), un uso que antes no estaba
+  # modelado en absoluto.
   esquinera_largo_pieza_m: 2.40
   # [doc] malla unión: 10 cm x 2.40 m, ambos lados. Video #37: "necesarias
   # cuando la altura del muro supera los 2.44 m, o en cortes donde no existe

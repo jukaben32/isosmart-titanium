@@ -299,10 +299,27 @@ class MotorQTO:
             mallas["zigzag_lados"])
         piezas_zigzag = g.n_ventanas * piezas_por_ventana + g.n_puertas_total * piezas_por_puerta
 
-        piezas_esquinera = math.ceil(
-            g.esquinas_efectivas * g.altura_efectiva_m * g.niveles
-            / mallas["esquinera_largo_pieza_m"]
+        # [doc] VERIFICADO con NotebookLM del usuario: dos productos
+        # distintos (interna 10x10/14x14cm, externa 20x20cm, ambas de
+        # 2.40m), y el redondeo se hace POR ESQUINA Y POR TIPO, no en
+        # agregado. Ejemplo resuelto: una esquina de 2.80m da ceil(2.80/2.40)
+        # = 2 piezas internas + 2 externas = 4 piezas, NO ceil(2.80*2/2.40)
+        # = 3 (que subestima). Antes: una sola cifra agregada
+        # ceil(esquinas*altura/2.40), que además solo cubría una cara.
+        piezas_por_esquina_por_tipo = math.ceil(g.altura_efectiva_m / mallas["esquinera_largo_pieza_m"])
+        n_esquinas_total = g.esquinas_efectivas * g.niveles
+        piezas_esquinera_interna = piezas_por_esquina_por_tipo * n_esquinas_total
+        piezas_esquinera_externa = piezas_por_esquina_por_tipo * n_esquinas_total
+
+        # [doc] video "Cuantificación de Materiales": la esquinera "también
+        # se debe incluir en las uniones entre muro y losa" -- una tira por
+        # cada metro lineal de unión (mismo largo de pieza, 2.40m). Antes
+        # ausente del modelo.
+        piezas_esquinera_union_losa = math.ceil(
+            g.ml_muros_total * g.niveles / mallas["esquinera_largo_pieza_m"]
         )
+        piezas_esquinera_interna += piezas_esquinera_union_losa
+        piezas_esquinera_externa += piezas_esquinera_union_losa
 
         # [doc] video "Cuantificación de Materiales": "malla unión necesaria
         # cuando la altura del muro supera los 2.44 m, o en cortes donde no
@@ -334,10 +351,22 @@ class MotorQTO:
                         f"(video 'Cuantificación de Materiales').")),
                     "pza", piezas_zigzag, self._desp("mallas"),
                     "Malla_zigzag_pieza", self._precio("Malla_zigzag_pieza")),
-            Partida("Muros", "Malla esquinera",
-                    f"({g.esquinas_efectivas} esquinas x {g.altura_efectiva_m} m) / 2.40 m",
-                    "pza", piezas_esquinera, self._desp("mallas"),
-                    "Malla_esquinera_pieza", self._precio("Malla_esquinera_pieza")),
+            Partida("Muros", "Malla esquinera interna",
+                    (f"{n_esquinas_total} esquinas x {piezas_por_esquina_por_tipo} pzas "
+                     f"(altura {g.altura_efectiva_m} m / 2.40 m, redondeado por esquina) "
+                     f"+ {piezas_esquinera_union_losa} pzas en uniones muro-losa "
+                     f"({g.ml_muros_total*g.niveles:.1f} ml / 2.40 m). "
+                     f"Cara interior; verificado con ejemplo numérico resuelto (esquina "
+                     f"de 2.80 m -> 2 piezas, NotebookLM del usuario)."),
+                    "pza", piezas_esquinera_interna, self._desp("mallas"),
+                    "Malla_esquinera_interna_pieza", self._precio("Malla_esquinera_interna_pieza")),
+            Partida("Muros", "Malla esquinera externa",
+                    (f"{n_esquinas_total} esquinas x {piezas_por_esquina_por_tipo} pzas "
+                     f"+ {piezas_esquinera_union_losa} pzas en uniones muro-losa. "
+                     f"Cara exterior (producto distinto a la interna: 20x20 cm vs "
+                     f"10x10/14x14 cm, mismo largo de 2.40 m)."),
+                    "pza", piezas_esquinera_externa, self._desp("mallas"),
+                    "Malla_esquinera_externa_pieza", self._precio("Malla_esquinera_externa_pieza")),
             Partida("Muros", "Malla de unión",
                     (f"Tira de 10 cm x 2.40 m, ambos lados. "
                      + (f"Costura horizontal por altura > {mallas['union_altura_umbral_m']} m "

@@ -182,6 +182,9 @@ FICHA_ISOTEX_DOMINICANA = {
 #   #20/#34 "Costos Covintec" / "Costos del sistema Constructivo Covintec"
 #       -- rendimientos reales de cuadrilla (armado de muros, losas),
 #       herramienta menor, comparación de ahorro 20-40%
+#   #37 (seguimiento) -- malla esquinera: DOS productos distintos (interna
+#       10x10/14x14cm, externa 20x20cm), redondeo por esquina y por tipo
+#       (no en agregado), verificado con ejemplo numérico resuelto
 FUENTE_NOTEBOOKLM_USUARIO = Fuente(
     valor="NotebookLM del usuario (50 videos de YouTube sobre EPS/ICF)",
     tipo="referencia",

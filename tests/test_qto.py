@@ -147,8 +147,14 @@ def test_mallas_siguen_las_formulas_del_documento():
     assert zigzag.cantidad_neta == esperado
     assert zigzag.cantidad_neta == 163
 
-    esquinera = next(p for p in motor.partidas() if p.partida == "Malla esquinera")
-    assert esquinera.cantidad_neta == math.ceil(4 * 2.8 / 2.40)
+    esquinera_interna = next(p for p in motor.partidas() if p.partida == "Malla esquinera interna")
+    esquinera_externa = next(p for p in motor.partidas() if p.partida == "Malla esquinera externa")
+    # Verificado con ejemplo numérico resuelto: esquina de 2.8m -> 2 pzas de
+    # CADA tipo (ceil(2.8/2.40)=2), no ceil(2.8*2/2.40)=3 (subestimaría).
+    piezas_por_esquina = math.ceil(2.8 / 2.40)
+    esperado_por_esquinas = 4 * piezas_por_esquina  # 4 esquinas efectivas por defecto
+    assert esquinera_interna.cantidad_neta >= esperado_por_esquinas
+    assert esquinera_externa.cantidad_neta == esquinera_interna.cantidad_neta  # mismo conteo, producto distinto
 
 
 def test_anclas_son_tres_por_panel():
@@ -382,7 +388,8 @@ def test_partidas_con_formula_real_del_documento_si_se_marcan_doc():
     deben_ser_doc = (
         "Mortero de revoque",           # 2.5 cm/cara, doc sección 2
         "Malla zigzag en vanos",        # 12/13 piezas x2, doc sección 4
-        "Malla esquinera",              # (esquinas x altura)/2.40, doc sección 4
+        "Malla esquinera interna",      # (esquinas x altura)/2.40, doc sección 4
+        "Malla esquinera externa",      # producto distinto, misma fórmula
         "Aplanado (manual)",            # 15-20 m²/día, doc sección 5
         "Losa de cimentación (platea)",  # 200 kg/cm², Manual Técnico Covintec 2011
         "Anclas / bastones 3/8\" (recibidores de cortante en 'U')",  # Manual Técnico Covintec 2011
@@ -630,3 +637,65 @@ def test_malla_union_sin_condicion_de_altura_para_muros_bajos():
     motor = MotorQTO(geo(altura_muro_m=2.2))
     union = next(p for p in motor.partidas() if "unión" in p.partida.lower())
     assert union.fuente == "[supuesto]"  # solo queda la fracción de cortes, sin la costura
+
+
+# ===========================================================================
+# Malla esquinera: dos productos, redondeo por esquina (no en agregado)
+# ===========================================================================
+
+def test_malla_esquinera_es_dos_productos_distintos():
+    """
+    VERIFICADO con NotebookLM del usuario: la malla esquinera interna
+    (10x10/14x14 cm) y la externa (20x20 cm) son productos DISTINTOS, no
+    una sola malla que se compra doble. Antes había una sola clave de
+    precio tratando ambas caras como el mismo producto.
+    """
+    motor = MotorQTO(geo())
+    nombres = {p.partida for p in motor.partidas() if p.categoria == "Muros"}
+    assert "Malla esquinera interna" in nombres
+    assert "Malla esquinera externa" in nombres
+
+    interna = next(p for p in motor.partidas() if p.partida == "Malla esquinera interna")
+    externa = next(p for p in motor.partidas() if p.partida == "Malla esquinera externa")
+    assert interna.clave_precio == "Malla_esquinera_interna_pieza"
+    assert externa.clave_precio == "Malla_esquinera_externa_pieza"
+    assert interna.clave_precio != externa.clave_precio
+
+
+def test_malla_esquinera_redondea_por_esquina_no_en_agregado():
+    """
+    VERIFICADO con ejemplo numérico resuelto por el usuario: una esquina de
+    2.80 m da ceil(2.80/2.40) = 2 piezas de CADA tipo (4 en total), no
+    ceil(2.80*2/2.40) = 3 (que subestimaría por redondear en agregado en
+    vez de por unidad física comprable). Mismo principio que la corrección
+    de malla zigzag: no se puede compartir una pieza fraccionaria de
+    sobrante entre distintas esquinas.
+    """
+    # Proyecto de una sola esquina, para aislar el cálculo (perímetro
+    # mínimo, geometría simple con las 4 esquinas por defecto -- se verifica
+    # el conteo POR esquina dividiendo entre el número de esquinas).
+    motor = MotorQTO(geo(altura_muro_m=2.80, perimetro_m=44, niveles=1))
+    g = motor.geo
+
+    interna = next(p for p in motor.partidas() if p.partida == "Malla esquinera interna")
+
+    piezas_por_esquina_esperadas = math.ceil(2.80 / 2.40)
+    assert piezas_por_esquina_esperadas == 2  # el ejemplo resuelto del usuario
+
+    # La partida incluye también las uniones muro-losa; se descuenta esa
+    # parte para verificar solo el componente de esquinas.
+    piezas_union = math.ceil(g.ml_muros_total * g.niveles / 2.40)
+    piezas_solo_esquinas = interna.cantidad_neta - piezas_union
+
+    assert piezas_solo_esquinas == g.esquinas_efectivas * g.niveles * piezas_por_esquina_esperadas
+
+
+def test_malla_esquinera_incluye_uniones_muro_losa():
+    """
+    Video #37: la esquinera "también se debe incluir en las uniones entre
+    muro y losa" -- antes esto no estaba modelado en absoluto.
+    """
+    motor = MotorQTO(geo())
+    interna = next(p for p in motor.partidas() if p.partida == "Malla esquinera interna")
+    assert "unión" in interna.detalle.lower() or "union" in interna.detalle.lower()
+    assert "muro-losa" in interna.detalle

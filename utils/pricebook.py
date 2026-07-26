@@ -69,7 +69,17 @@ DEFAULT_PRICEBOOK: dict[str, float] = {
     "Mortero_saco": 380.00,
     "Microfibra_kg": 320.00,
     "Malla_zigzag_pieza": 95.00,
-    "Malla_esquinera_pieza": 180.00,
+    # [doc] VERIFICADO con NotebookLM del usuario: son DOS productos
+    # distintos, no una malla que se duplica -- malla esquinera interna
+    # (10x10 o 14x14 cm x 2.40 m) y externa (20x20 cm x 2.40 m). Antes
+    # había una sola clave "Malla_esquinera_pieza" tratando ambas caras
+    # como el mismo producto.
+    #
+    # Sin cotización real que distinga el precio de cada una todavía
+    # (ambas parten del mismo precio de referencia anterior, 180.00) --
+    # ver PRECIOS_POR_VERIFICAR.
+    "Malla_esquinera_interna_pieza": 180.00,
+    "Malla_esquinera_externa_pieza": 180.00,
     "Malla_union_pieza": 145.00,
     "Polietileno_m2": 65.00,
     "Instalacion_electrica_m2": 1450.00,
@@ -88,7 +98,8 @@ DEFAULT_PRICEBOOK: dict[str, float] = {
 # permite que la interfaz y el PDF avisen en vez de presentarlos como firmes.
 # ---------------------------------------------------------------------------
 PRECIOS_POR_VERIFICAR = frozenset({
-    "Mortero_saco", "Microfibra_kg", "Malla_zigzag_pieza", "Malla_esquinera_pieza",
+    "Mortero_saco", "Microfibra_kg", "Malla_zigzag_pieza",
+    "Malla_esquinera_interna_pieza", "Malla_esquinera_externa_pieza",
     "Malla_union_pieza", "Polietileno_m2", "Instalacion_electrica_m2",
     "Instalacion_sanitaria_m2", "Puerta_exterior", "Impermeabilizante_azotea_m2",
     "Cielo_raso_m2", "MO_jornal_dia",
