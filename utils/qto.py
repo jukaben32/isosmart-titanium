@@ -374,11 +374,20 @@ class MotorQTO:
         # suma la condición real de altura (aplicada a lo largo de todo el
         # muro, en la costura horizontal donde el panel se extiende más
         # allá de 2.44 m) como un segundo motivo documentado.
+        # [doc] VERIFICADO con ejemplo numérico resuelto por el usuario:
+        # "1.22 m (frente) + 1.22 m (atrás) = 2.44 ml -> 2.44/2.40 = 1.01 ->
+        # 2 piezas POR CADA PANEL que se encima para ganar altura". Mismo
+        # error de principio que ya se corrigió en malla zigzag y malla
+        # esquinera: la fórmula anterior trataba TODO el muro como una
+        # sola tira continua (ceil(ml_muros_total/2.40)*lados = ~70 piezas
+        # para un caso de referencia), en vez de calcular por panel
+        # individual y redondear por unidad física (69 paneles x 2 piezas
+        # = 138 piezas para el mismo caso) -- una subestimación de casi 2x.
         piezas_union_por_altura = 0
         if g.altura_efectiva_m > mallas["union_altura_umbral_m"]:
-            piezas_union_por_altura = math.ceil(
-                g.ml_muros_total * g.niveles / mallas["union_largo_pieza_m"]
-            ) * mallas["union_lados"]
+            lineal_por_panel = self.p["panel"]["ancho_util_m"] * mallas["union_lados"]
+            piezas_por_panel_altura = math.ceil(lineal_por_panel / mallas["union_largo_pieza_m"])
+            piezas_union_por_altura = g.n_paneles_muro * piezas_por_panel_altura
         piezas_union_por_cortes = math.ceil(
             g.n_paneles_muro * mallas["union_fraccion_paneles_cortados"]
             * mallas["union_lados"]
@@ -421,9 +430,10 @@ class MotorQTO:
                     "Malla_esquinera_externa_pieza", self._precio("Malla_esquinera_externa_pieza")),
             Partida("Muros", "Malla de unión",
                     (f"Tira de 10 cm x 2.40 m, ambos lados. "
-                     + (f"Uniones horizontales por altura > {mallas['union_altura_umbral_m']} m "
-                        f"({piezas_union_por_altura} pzas, [doc] video 'Cuantificación de "
-                        f"Materiales') + "
+                     + (f"Uniones horizontales por altura > {mallas['union_altura_umbral_m']} m: "
+                        f"{g.n_paneles_muro} paneles x 2 pzas c/u = {piezas_union_por_altura} pzas "
+                        f"(verificado con ejemplo numérico resuelto: 1.22 m x 2 caras / 2.40 m = "
+                        f"2 pzas por panel) + "
                         if piezas_union_por_altura > 0 else "")
                      + f"cortes de ajuste por modulación + reparación de instalaciones "
                        f"({piezas_union_por_cortes} pzas, [supuesto] "

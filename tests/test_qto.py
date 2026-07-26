@@ -849,3 +849,33 @@ def test_limitaciones_conocidas_estan_documentadas_y_expuestas():
     texto = " ".join(limitaciones).lower()
     for tema in ("dos aguas", "híbrida", "colindancia", "bovedilla", "curvo"):
         assert tema in texto, f"falta documentar: {tema}"
+
+
+def test_malla_union_por_altura_se_calcula_por_panel_no_en_agregado():
+    """
+    Bug: la fórmula anterior trataba TODO el muro como una tira continua
+    (ceil(ml_muros_total/2.40)*lados), subestimando casi a la mitad.
+    VERIFICADO con ejemplo numérico resuelto por el usuario: para UN panel
+    (1.22 m) que se encima para ganar altura, "1.22 m (frente) + 1.22 m
+    (atrás) = 2.44 ml -> 2.44/2.40 = 1.01 -> 2 piezas". La cantidad debe
+    calcularse POR PANEL, no por el total de metros lineales del muro.
+    """
+    g = geo(altura_muro_m=3.12, perimetro_m=44)  # > 2.44m, dispara la condición
+    motor = MotorQTO(g)
+
+    # Verificación exacta del ejemplo de un solo panel.
+    lineal_un_panel = 1.22 * 2
+    piezas_un_panel = math.ceil(lineal_un_panel / 2.40)
+    assert piezas_un_panel == 2
+
+    union = next(p for p in motor.partidas() if "unión" in p.partida.lower())
+    esperado_por_altura = g.n_paneles_muro * piezas_un_panel
+    esperado_por_cortes = math.ceil(
+        g.n_paneles_muro * P["mallas"]["union_fraccion_paneles_cortados"] * 2
+    )
+    assert union.cantidad_neta == esperado_por_altura + esperado_por_cortes
+
+    # La fórmula vieja (agregado) habría dado casi la mitad -- se verifica
+    # que la nueva es sustancialmente mayor.
+    formula_vieja = math.ceil(g.ml_muros_total / 2.40) * 2
+    assert esperado_por_altura > formula_vieja * 1.8  # ~2x, con margen
