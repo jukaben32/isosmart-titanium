@@ -810,3 +810,42 @@ def test_anclas_incluyen_conexion_superior_a_losa():
                   * P["anclaje"]["peso_varilla_3_8_kg_por_m"])
     assert anclas.cantidad_neta == pytest.approx(kg_esperado, rel=1e-6)
     assert "conexión superior" in anclas.detalle
+
+
+# ===========================================================================
+# Barrido general de mallas/refuerzos (NotebookLM del usuario)
+# ===========================================================================
+
+def test_puerta_ancha_advierte_sobre_malla_zigzag_reforzada():
+    """
+    NotebookLM del usuario: puertas de más de 90 cm requieren malla zigzag
+    REFORZADA (10x1.22 m, mayor calibre), un producto distinto no
+    incluido en el pricebook. Debe advertirse, no calcularse en silencio
+    con el producto estándar.
+    """
+    motor = MotorQTO(geo(ancho_puerta_m=1.20, alto_puerta_m=2.15))
+    zigzag = next(p for p in motor.partidas() if p.partida == "Malla zigzag en vanos")
+    assert "reforzada" in zigzag.detalle.lower()
+    assert "90 cm" in zigzag.detalle
+
+
+def test_puerta_de_referencia_no_dispara_advertencia_de_reforzada():
+    """Con la puerta de referencia (90 cm) no debe aparecer la advertencia."""
+    motor = MotorQTO(geo())  # usa el default de 0.90 m
+    zigzag = next(p for p in motor.partidas() if p.partida == "Malla zigzag en vanos")
+    assert "reforzada" not in zigzag.detalle.lower()
+
+
+def test_limitaciones_conocidas_estan_documentadas_y_expuestas():
+    """
+    Barrido general de refuerzos especializados (NotebookLM del usuario):
+    la mayoría corresponden a condiciones de proyecto que Geometria no
+    modela (techos a dos aguas, obra híbrida, bovedilla, muros curvos).
+    Deben quedar documentadas explícitamente, no omitidas en silencio.
+    """
+    limitaciones = MotorQTO.limitaciones_conocidas()
+    assert len(limitaciones) >= 5
+
+    texto = " ".join(limitaciones).lower()
+    for tema in ("dos aguas", "híbrida", "colindancia", "bovedilla", "curvo"):
+        assert tema in texto, f"falta documentar: {tema}"

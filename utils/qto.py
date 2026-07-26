@@ -91,6 +91,40 @@ class Partida:
 # acabados, que son iguales en ambos sistemas)".
 CATEGORIAS_OBRA_GRIS = ("Cimentación", "Muros", "Losa", "Acero", "Mano de obra")
 
+# ---------------------------------------------------------------------------
+# Limitaciones conocidas del modelo.
+#
+# VERIFICADO con NotebookLM del usuario: existen refuerzos y mallas
+# especializados documentados en las fuentes técnicas que este motor NO
+# calcula, porque corresponden a condiciones de proyecto que Geometria no
+# modela todavía (techos a dos aguas, obra híbrida con columnas de acero,
+# sistemas de bovedilla/casetón, muros curvos). En vez de omitirlos en
+# silencio, se documentan aquí para que la interfaz los muestre
+# explícitamente -- el usuario debe presupuestarlos aparte si su proyecto
+# los requiere.
+# ---------------------------------------------------------------------------
+LIMITACIONES_CONOCIDAS = (
+    "Techos a dos aguas: requieren malla cumbrera en el vértice superior "
+    "(no modelado; este motor solo calcula losa plana/azotea).",
+    "Obra híbrida (muros EPS que conectan con columnas de concreto o "
+    "marcos de acero): requiere calafateo de malla y acero desplegable en "
+    "cada empalme, además de 12-15 anclas/panel en vez de 6 (no modelado).",
+    "Muros de colindancia / bardas de lindero: requieren anclaje en ambas "
+    "caras (alternado), no modelado como caso distinto del muro estándar.",
+    "Sistemas de losa con casetón/bovedilla: requieren malla tipo "
+    "gallinero en el aplanado de plafones (este motor solo calcula el "
+    "sistema de panel/Qualylosa, no bovedilla).",
+    "Vanos circulares, muros curvos o cúpulas: el autoensamble de fábrica "
+    "no coincide por el ángulo; requiere malla unión adicional para "
+    "'parchar' esas geometrías (no modelado; Geometria es rectangular/L).",
+    "Acabados interiores con masilla o enduído flexible: se recomienda "
+    "malla de fibra de vidrio para prevenir microfisuras (este motor solo "
+    "calcula pintura como acabado de muro).",
+    "Puertas de más de 90 cm de ancho: requieren malla zigzag reforzada "
+    "(10x1.22 m, mayor calibre) -- se advierte en la partida "
+    "correspondiente, pero el producto no está en el pricebook todavía.",
+)
+
 
 class MotorQTO:
     """Motor de cantidades y presupuesto."""
@@ -360,7 +394,12 @@ class MotorQTO:
                         if g._es_ventana_referencia and g._es_puerta_referencia else
                         f"Vano(s) no estándar: (perímetro + 4x{mallas['zigzag_excedente_diagonal_m']*100:.0f}cm) "
                         f"x2 caras / 1.22 m -- verificado con ejemplo numérico resuelto "
-                        f"(video 'Cuantificación de Materiales').")),
+                        f"(video 'Cuantificación de Materiales').")
+                     + (f" ⚠️ Puerta(s) de {g.ancho_puerta_m:.2f} m de ancho (>90 cm): el "
+                        f"NotebookLM del usuario indica que puertas de más de 90 cm requieren "
+                        f"malla zigzag REFORZADA (10x1.22 m, mayor calibre), un producto "
+                        f"distinto no incluido en este pricebook -- verificar con proveedor."
+                        if g.ancho_puerta_m > 0.90 else "")),
                     "pza", piezas_zigzag, self._desp("mallas"),
                     "Malla_zigzag_pieza", self._precio("Malla_zigzag_pieza")),
             Partida("Muros", "Malla esquinera interna",
@@ -591,6 +630,11 @@ class MotorQTO:
                     "desperdicio", "cantidad", "clave_precio", "precio_unitario",
                     "subtotal", "precio_por_verificar", "fuente"]
         return df[columnas]
+
+    @classmethod
+    def limitaciones_conocidas(cls) -> tuple:
+        """Condiciones de proyecto que este motor no calcula (ver LIMITACIONES_CONOCIDAS)."""
+        return LIMITACIONES_CONOCIDAS
 
     @classmethod
     def claves_precio_usadas(cls, precios: Optional[Dict[str, float]] = None) -> frozenset:

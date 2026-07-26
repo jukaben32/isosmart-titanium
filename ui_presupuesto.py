@@ -308,6 +308,16 @@ def pagina_presupuesto_detallado():
         with st.expander("Ver partidas con precio por verificar"):
             st.dataframe(por_verificar, use_container_width=True)
 
+    # -- honestidad sobre condiciones de proyecto no modeladas ------------
+    with st.expander("⚠️ Condiciones de proyecto que este motor NO calcula", expanded=False):
+        st.caption(
+            "Verificado con el NotebookLM del usuario: estos refuerzos existen en las "
+            "fuentes técnicas pero no están modelados todavía. Si tu proyecto tiene "
+            "alguna de estas condiciones, presupuéstala aparte."
+        )
+        for limitacion in MotorQTO.limitaciones_conocidas():
+            st.markdown(f"- {limitacion}")
+
     # -- exportación ------------------------------------------------------
     st.download_button(
         "📥 Descargar presupuesto (CSV)",
