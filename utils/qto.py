@@ -161,14 +161,26 @@ class MotorQTO:
         area = g.area_cimentacion_m2
         f_horm = self._factores_zona["hormigon"]
 
+        vol_replantillo = area * esp["replantillo_m"]
         vol_plantilla = area * esp["plantilla_concreto_pobre_m"]
         vol_platea = area * esp["cimentacion_platea_m"] * f_horm
 
         return [
+            # [doc] sección 3: "Replantillo (cimentación): capa 12-15 cm de
+            # mezcla en fondo de excavación". Antes esta capa NO existía en el
+            # cálculo -- el documento distingue explícitamente replantillo
+            # (12-15 cm, en el fondo de la excavación) de la plantilla de
+            # concreto pobre (5-10 cm, capa de nivelación sobre el
+            # replantillo). Son dos capas físicas distintas; faltaba una.
+            Partida("Cimentación", "Replantillo",
+                    f"Capa de {esp['replantillo_m']*100:.1f} cm en fondo de excavación",
+                    "m³", vol_replantillo, self._desp("concreto"),
+                    "H_3000_PSI", self._precio("H_3000_PSI") * 0.60, "[supuesto]"),
             Partida("Cimentación", "Plantilla de concreto pobre",
-                    f"Capa de {esp['plantilla_concreto_pobre_m']*100:.0f} cm en fondo de excavación",
+                    f"Capa de nivelación de {esp['plantilla_concreto_pobre_m']*100:.0f} cm "
+                    f"sobre el replantillo",
                     "m³", vol_plantilla, self._desp("concreto"),
-                    "H_3000_PSI", self._precio("H_3000_PSI") * 0.75),
+                    "H_3000_PSI", self._precio("H_3000_PSI") * 0.75, "[supuesto]"),
             Partida("Cimentación", "Barrera de polietileno",
                     "Membrana anti-humedad bajo losa de cimentación",
                     "m²", area, 0.10, "Polietileno_m2", self._precio("Polietileno_m2"),
@@ -177,12 +189,20 @@ class MotorQTO:
                     f"Refuerzo de platea (traslape {(self.p['mallas']['electrosoldada_traslape']-1)*100:.0f}%)",
                     "m²", area * self.p["mallas"]["electrosoldada_traslape"],
                     self._desp("mallas"), "Malla_Electrosoldada",
-                    self._precio("Malla_Electrosoldada")),
+                    self._precio("Malla_Electrosoldada"), "[supuesto]"),
+            # [doc] sección 2: "Resistencia cimentación/zapata: 250 kg/cm²".
+            # Antes: `H_3000_PSI * 1.20`, un multiplicador arbitrario sobre el
+            # concreto de losa (≈211 kg/cm², para el requisito de 200 kg/cm²
+            # de losa). H_3500_PSI (≈246 kg/cm²) YA EXISTE en el pricebook y
+            # es la resistencia correcta para cimentación -- se usa
+            # directamente en vez de fabricar un precio sintético con un
+            # multiplicador sin fuente.
             Partida("Cimentación", "Losa de cimentación (platea)",
-                    f"Concreto {self.p['resistencias']['cimentacion']} kg/cm², "
+                    f"Concreto {self.p['resistencias']['cimentacion']} kg/cm² "
+                    f"(H_3500_PSI ≈ 246 kg/cm², la resistencia disponible más cercana), "
                     f"espesor {esp['cimentacion_platea_m']*100:.1f} cm",
                     "m³", vol_platea, self._desp("concreto"),
-                    "H_3000_PSI", self._precio("H_3000_PSI") * 1.20),
+                    "H_3500_PSI", self._precio("H_3500_PSI")),
         ]
 
     def _muros(self) -> list[Partida]:
@@ -241,7 +261,9 @@ class MotorQTO:
 
         partidas += [
             Partida("Muros", "Malla zigzag en vanos",
-                    f"{g.n_ventanas} ventanas x 12 pzas + {g.n_puertas_total} puertas x 13 pzas, ambos lados",
+                    f"{g.n_ventanas} ventanas x 12 pzas + {g.n_puertas_total} puertas x 13 pzas, ambos lados. "
+                    f"Asume vanos de referencia (ventana 90x90 cm, puerta 215x90 cm); "
+                    f"vanos reales más grandes requieren más piezas.",
                     "pza", piezas_zigzag, self._desp("mallas"),
                     "Malla_zigzag_pieza", self._precio("Malla_zigzag_pieza")),
             Partida("Muros", "Malla esquinera",
@@ -262,9 +284,9 @@ class MotorQTO:
         partidas.append(
             Partida("Muros", "Anclas / bastones 3/8\"",
                     f"{n_anclas} anclas (3 por panel, cada {anclaje['separacion_m']*100:.0f} cm), "
-                    f"5 cm dentro de cimentación",
+                    f"5 cm dentro de cimentación (longitud total de ancla: supuesto)",
                     "kg", kg_anclas, self._desp("acero"),
-                    "Acero_Varilla", self._precio("Acero_Varilla"))
+                    "Acero_Varilla", self._precio("Acero_Varilla"), "[supuesto]")
         )
         return partidas
 
@@ -325,11 +347,13 @@ class MotorQTO:
             Partida("Acabados", "Piso",
                     f"Calidad {self.calidad.value}", "m²",
                     g.area_m2, self._desp("acabados"), clave_piso,
-                    self._precio(clave_piso) * (f / 1.0 if clave_piso == "Ceramica_m2" else 1.0)),
+                    self._precio(clave_piso) * (f / 1.0 if clave_piso == "Ceramica_m2" else 1.0),
+                    "[supuesto]"),
             Partida("Acabados", "Pintura",
-                    "Vinílica, 3 manos sobre ambas caras de muro", "gal",
+                    "Vinílica, 3 manos sobre ambas caras de muro "
+                    "(rendimiento de 12 m²/galón: supuesto, sin ficha técnica)", "gal",
                     g.area_muros_m2 * 2 / 12.0, self._desp("acabados"),
-                    "Pintura_galon", self._precio("Pintura_galon") * f),
+                    "Pintura_galon", self._precio("Pintura_galon") * f, "[supuesto]"),
             Partida("Acabados", "Cielo raso",
                     "Suministro e instalación", "m²",
                     g.area_planta_m2, self._desp("acabados"),
@@ -340,17 +364,19 @@ class MotorQTO:
                     "Impermeabilizante_azotea_m2", self._precio("Impermeabilizante_azotea_m2"),
                     "[supuesto]"),
             Partida("Carpintería", "Puertas interiores",
-                    f"{g.n_puertas_interiores} unidades con marco", "ud",
+                    f"{g.n_puertas_interiores} unidades con marco "
+                    f"(cantidad estimada por área, no contada del plano)", "ud",
                     g.n_puertas_interiores, 0.0, "Puerta_interior",
-                    self._precio("Puerta_interior") * f),
+                    self._precio("Puerta_interior") * f, "[supuesto]"),
             Partida("Carpintería", "Puertas exteriores",
                     f"{g.n_puertas_exteriores} unidades de seguridad", "ud",
                     g.n_puertas_exteriores, 0.0, "Puerta_exterior",
                     self._precio("Puerta_exterior") * f, "[supuesto]"),
             Partida("Carpintería", "Ventanas de aluminio",
-                    f"{g.n_ventanas} ventanas (~1.2 m² c/u)", "m²",
+                    f"{g.n_ventanas} ventanas (~1.2 m² c/u: cantidad y tamaño "
+                    f"estimados por área, no contados/medidos del plano)", "m²",
                     g.n_ventanas * 1.2, self._desp("acabados"),
-                    "Ventana_aluminio_m2", self._precio("Ventana_aluminio_m2") * f),
+                    "Ventana_aluminio_m2", self._precio("Ventana_aluminio_m2") * f, "[supuesto]"),
         ]
 
         # --- baños --------------------------------------------------------
@@ -358,19 +384,19 @@ class MotorQTO:
         for nombre, clave in (("Inodoros", "Inodoro"), ("Lavamanos", "Lavamanos"),
                               ("Duchas", "Ducha"), ("Grifería", "Griferia_bano")):
             partidas.append(
-                Partida("Baños", nombre, f"{n} baño(s)", "ud",
-                        n, 0.0, clave, self._precio(clave) * f)
+                Partida("Baños", nombre, f"{n} baño(s) (cantidad estimada por área)", "ud",
+                        n, 0.0, clave, self._precio(clave) * f, "[supuesto]")
             )
 
         # --- cocina -------------------------------------------------------
         ml = g.ml_cocina_m
         partidas += [
-            Partida("Cocina", "Gabinetes", f"{ml:.1f} ml", "ml",
-                    ml, 0.0, "Gabinete_cocina_ml", self._precio("Gabinete_cocina_ml") * f),
-            Partida("Cocina", "Mesón de granito", f"{ml:.1f} ml", "ml",
-                    ml, 0.0, "Meson_granito_ml", self._precio("Meson_granito_ml") * f),
+            Partida("Cocina", "Gabinetes", f"{ml:.1f} ml (estimado por área)", "ml",
+                    ml, 0.0, "Gabinete_cocina_ml", self._precio("Gabinete_cocina_ml") * f, "[supuesto]"),
+            Partida("Cocina", "Mesón de granito", f"{ml:.1f} ml (estimado por área)", "ml",
+                    ml, 0.0, "Meson_granito_ml", self._precio("Meson_granito_ml") * f, "[supuesto]"),
             Partida("Cocina", "Fregadero", "Suministro e instalación", "ud",
-                    1, 0.0, "Fregadero_cocina", self._precio("Fregadero_cocina") * f),
+                    1, 0.0, "Fregadero_cocina", self._precio("Fregadero_cocina") * f, "[supuesto]"),
         ]
         return partidas
 

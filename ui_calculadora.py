@@ -34,6 +34,8 @@ from utils.financiera import AnalisisFinanciero
 from utils.gemini_plan import analyze_plan_image_with_gemini
 from utils.pdf_utils import pdf_first_page_to_image
 from utils.plan_geometry import (
+    contar_lineas_calibracion,
+    contar_poligonos,
     extract_line_segments,
     extract_points,
     polygon_area_perimeter,
@@ -125,16 +127,30 @@ def render_modulo_vision_y_canvas(modelo_gemini):
                 
                 # Calcular escala en metros/píxel (m/px) usando la primera línea dibujada
                 m_por_px = scale_from_canvas_line(objetos, longitud_real_m)
-                
+
                 if m_por_px:
+                    n_lineas = contar_lineas_calibracion(objetos)
+                    if n_lineas > 1:
+                        st.warning(
+                            f"⚠️ Se detectaron {n_lineas} líneas dibujadas; se usó la "
+                            f"PRIMERA para calibrar. Borra las líneas sobrantes si no "
+                            f"era la que querías usar."
+                        )
                     st.info(f"📐 Factor de escala calculado: **{m_por_px:.5f} m/px**")
-                    
+
                     # Extraer el primer polígono dibujado por el usuario
                     puntos_poligono = polygon_from_canvas(objetos)
-                    
+                    n_poligonos = contar_poligonos(objetos)
+                    if n_poligonos > 1:
+                        st.warning(
+                            f"⚠️ Se detectaron {n_poligonos} polígonos trazados; se usó "
+                            f"el PRIMERO. Si el área mostrada no es la que esperabas, "
+                            f"borra los polígonos sobrantes y traza solo el perímetro."
+                        )
+
                     if puntos_poligono:
                         area_px2, perimetro_px = polygon_area_perimeter(puntos_poligono)
-                        
+
                         # Conversión métrica real usando el factor de escala
                         area_m2_real = area_px2 * (m_por_px ** 2)
                         perimetro_m_real = perimetro_px * m_por_px

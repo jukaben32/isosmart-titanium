@@ -282,3 +282,112 @@ def test_categorias_de_obra_gris_son_coherentes():
     grises = set(resumen[resumen["obra"] == "Gris"]["categoria"])
     assert grises <= set(CATEGORIAS_OBRA_GRIS)
     assert resumen["pct"].sum() == pytest.approx(100.0, rel=1e-6)
+
+
+# ===========================================================================
+# Precisión de la cimentación (revisión "cada detalle de la obra", 2026-07-26)
+# ===========================================================================
+
+def test_replantillo_es_una_capa_distinta_de_la_plantilla():
+    """
+    Bug: `data/parametros_tecnicos.yaml` define `replantillo_m` (12-15 cm,
+    [doc] sección 3) pero el motor nunca lo usaba -- una capa de cimentación
+    completa, documentada, estaba ausente del cálculo. El documento distingue
+    explícitamente replantillo (fondo de excavación) de la plantilla de
+    concreto pobre (nivelación, sobre el replantillo): son dos partidas, no una.
+    """
+    motor = MotorQTO(geo())
+    nombres = {p.partida for p in motor.partidas() if p.categoria == "Cimentación"}
+    assert "Replantillo" in nombres
+    assert "Plantilla de concreto pobre" in nombres
+
+    replantillo = next(p for p in motor.partidas() if p.partida == "Replantillo")
+    plantilla = next(p for p in motor.partidas() if p.partida == "Plantilla de concreto pobre")
+    assert replantillo.cantidad_neta != plantilla.cantidad_neta  # espesores distintos
+    esperado_replantillo = geo().area_cimentacion_m2 * P["espesores"]["replantillo_m"]
+    assert replantillo.cantidad_neta == pytest.approx(esperado_replantillo, rel=1e-6)
+
+
+def test_cimentacion_usa_la_resistencia_de_concreto_correcta():
+    """
+    Bug: la platea de cimentación (250 kg/cm² según el doc) se pagaba con
+    `H_3000_PSI * 1.20`, un multiplicador arbitrario sin fuente, mientras el
+    pricebook YA tenía `H_3500_PSI` (~246 kg/cm², la resistencia disponible
+    más cercana a los 250 kg/cm² requeridos). Ahora usa esa clave
+    directamente en vez de fabricar un precio sintético.
+    """
+    from utils.pricebook import DEFAULT_PRICEBOOK
+
+    motor = MotorQTO(geo(), DEFAULT_PRICEBOOK)
+    platea = next(p for p in motor.partidas() if p.partida == "Losa de cimentación (platea)")
+
+    assert platea.clave_precio == "H_3500_PSI"
+    assert platea.precio_unitario == pytest.approx(DEFAULT_PRICEBOOK["H_3500_PSI"])
+
+
+def test_todas_las_cimentacion_tienen_precio_positivo():
+    """Verificación de cordura tras agregar la capa de replantillo."""
+    motor = MotorQTO(geo())
+    for p in motor.partidas():
+        if p.categoria == "Cimentación":
+            assert p.cantidad_neta > 0, p.partida
+            assert p.subtotal > 0, p.partida
+
+
+# ===========================================================================
+# Trazabilidad correcta del campo `fuente` por partida
+# ===========================================================================
+
+def test_partidas_sin_formula_del_documento_no_se_marcan_doc():
+    """
+    Bug: el campo `fuente` de `Partida` tiene un valor por defecto "[doc]".
+    Partidas cuya cantidad depende de supuestos de geometria_defecto.yaml
+    (conteo de puertas/ventanas/baños por área, cobertura de pintura,
+    longitud de anclas) se etiquetaban "[doc]" por omisión, sin que nadie lo
+    hubiera decidido explícitamente -- exactamente el patrón de dato "con
+    apariencia de fuente" que esta auditoría persigue en el resto de la app.
+    """
+    motor = MotorQTO(geo())
+    partidas_por_nombre = {p.partida: p for p in motor.partidas()}
+
+    deben_ser_supuesto = (
+        "Anclas / bastones 3/8\"", "Piso", "Pintura",
+        "Puertas interiores", "Ventanas de aluminio",
+        "Inodoros", "Lavamanos", "Duchas", "Grifería",
+        "Gabinetes", "Mesón de granito", "Fregadero",
+        "Replantillo", "Malla electrosoldada 10x10",
+    )
+    for nombre in deben_ser_supuesto:
+        assert partidas_por_nombre[nombre].fuente == "[supuesto]", (
+            f"'{nombre}' no tiene una fórmula de docs/BASE_TECNICA_EPS_ICF.md "
+            f"y no debería marcarse [doc]"
+        )
+
+
+def test_partidas_con_formula_real_del_documento_si_se_marcan_doc():
+    """Contraparte: las que SÍ vienen literalmente del documento deben conservar [doc]."""
+    motor = MotorQTO(geo())
+    partidas_por_nombre = {p.partida: p for p in motor.partidas()}
+
+    deben_ser_doc = (
+        "Mortero de revoque",           # 2.5 cm/cara, doc sección 2
+        "Malla zigzag en vanos",        # 12/13 piezas x2, doc sección 4
+        "Malla esquinera",              # (esquinas x altura)/2.40, doc sección 4
+        "Aplanado (manual)",            # 15-20 m²/día, doc sección 5
+        "Losa de cimentación (platea)",  # 250 kg/cm², doc sección 2
+    )
+    for nombre in deben_ser_doc:
+        assert partidas_por_nombre[nombre].fuente == "[doc]", nombre
+
+
+def test_malla_zigzag_advierte_sobre_el_tamano_de_vano_asumido():
+    """
+    Limitación real: Geometria no rastrea las dimensiones de ventanas/puertas,
+    solo su cantidad. La fórmula del documento (12/13 piezas) está calibrada
+    para vanos de referencia (90x90 cm ventana, 215x90 cm puerta); si los
+    vanos reales del proyecto son más grandes, la malla se queda corta. Debe
+    quedar advertido en el detalle de la partida, no asumido en silencio.
+    """
+    motor = MotorQTO(geo())
+    zigzag = next(p for p in motor.partidas() if p.partida == "Malla zigzag en vanos")
+    assert "90x90" in zigzag.detalle or "referencia" in zigzag.detalle.lower()

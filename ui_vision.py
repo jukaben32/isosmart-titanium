@@ -12,6 +12,8 @@ from ui_core import (
 from utils.gemini_plan import analyze_plan_image_with_gemini
 from utils.pdf_utils import pdf_first_page_to_image
 from utils.plan_geometry import (
+    contar_lineas_calibracion,
+    contar_poligonos,
     polygon_area_perimeter,
     polygon_from_canvas,
     scale_from_canvas_line,
@@ -85,8 +87,18 @@ def render_integradora_vision_canvas(modelo_gemini):
                 objs = canvas_out.json_data["objects"]
                 m_px = scale_from_canvas_line(objs, dist_real)
                 if m_px:
+                    if contar_lineas_calibracion(objs) > 1:
+                        st.warning(
+                            f"⚠️ Hay {contar_lineas_calibracion(objs)} líneas dibujadas; "
+                            f"se calibró con la primera."
+                        )
                     st.caption(f"Factor de calibración: {m_px:.6f} m/px")
                     path_poligono = polygon_from_canvas(objs)
+                    if contar_poligonos(objs) > 1:
+                        st.warning(
+                            f"⚠️ Hay {contar_poligonos(objs)} polígonos trazados; "
+                            f"se usó el primero."
+                        )
                     if path_poligono:
                         a_px2, p_px = polygon_area_perimeter(path_poligono)
                         real_a = a_px2 * (m_px ** 2)

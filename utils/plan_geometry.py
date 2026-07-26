@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def _dist(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -101,6 +101,32 @@ def extract_points(objects: list[dict[str, Any]]) -> list[tuple[float, float]]:
         r = float(obj.get("radius", 0.0))
         out.append((left + r, top + r))
     return out
+
+
+def contar_lineas_calibracion(objects: list[dict[str, Any]]) -> int:
+    """
+    Cuenta cuántos objetos `type='line'` hay en el trazado.
+
+    `scale_from_canvas_line()` siempre usa la PRIMERA línea encontrada, en
+    silencio. Si el usuario dibuja más de una (por error, o para calibrar
+    dos veces), la calibración usada puede no ser la que el usuario cree que
+    está usando. Este contador permite que la UI lo advierta explícitamente
+    en vez de dejarlo como un supuesto invisible.
+    """
+    if not objects:
+        return 0
+    return sum(1 for obj in objects if isinstance(obj, dict) and obj.get("type") == "line")
+
+
+def contar_poligonos(objects: list[dict[str, Any]]) -> int:
+    """Análogo a `contar_lineas_calibracion()`, para `polygon_from_canvas()`."""
+    if not objects:
+        return 0
+    return sum(
+        1 for obj in objects
+        if isinstance(obj, dict) and obj.get("type") == "polygon"
+        and isinstance(obj.get("points"), list) and len(obj["points"]) >= 3
+    )
 
 
 def scale_from_canvas_line(objects: list[dict[str, Any]], real_length_m: float) -> float | None:
