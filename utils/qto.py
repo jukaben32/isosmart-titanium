@@ -104,6 +104,13 @@ CATEGORIAS_OBRA_GRIS = ("Cimentación", "Muros", "Losa", "Acero", "Mano de obra"
 # los requiere.
 # ---------------------------------------------------------------------------
 LIMITACIONES_CONOCIDAS = (
+    "Sistema de techo: este motor asume panel EPS + capa de compresión "
+    "de concreto (tipo \"Qualylosa\", Covintec México). El proveedor real "
+    "en RD (isotexdominicana.com) no vende ese producto -- su línea es "
+    "TERMOPANEL® (panel sándwich acero-EPS-acero, sin concreto, costo muy "
+    "distinto) o ISOLOSA® (EPS + perfil metálico, más parecido pero "
+    "producto propio). Confirmar qué sistema se va a usar antes de "
+    "presupuestar el techo con precisión.",
     "Techos a dos aguas: requieren malla cumbrera en el vértice superior "
     "(no modelado; este motor solo calcula losa plana/azotea).",
     "Obra híbrida (muros EPS que conectan con columnas de concreto o "
@@ -307,14 +314,16 @@ class MotorQTO:
         # sobreestimando el volumen ~2.5x respecto a la base técnica.
         area_aplanado = g.area_muros_m2 * 2          # dos caras
         vol_mortero = area_aplanado * esp_mortero
-        bultos = self._bultos_mortero(vol_mortero)
+        bultos = self._bultos_mortero(vol_mortero)   # consumo exacto (para arena/microfibra)
+        bultos_comprados = math.ceil(bultos)          # el cemento se compra por saco entero
         partidas += [
             Partida("Muros", "Mortero de revoque",
                     f"{esp_mortero*100:.1f} cm por cara, 2 capas, sobre {area_aplanado:.0f} m². "
                     f"Rendimiento {self.p['mezclas']['mortero']['rendimiento_m3_por_bulto']*1000:.0f} "
                     f"L/bulto (estimado por analogía con el concreto, NotebookLM del usuario; "
-                    f"sin ficha técnica directa del mortero proyectado todavía).",
-                    "saco", bultos, self._desp("mortero"),
+                    f"sin ficha técnica directa del mortero proyectado todavía). Redondeado a "
+                    f"saco entero: no se vende cemento por fracción de bulto.",
+                    "saco", bultos_comprados, self._desp("mortero"),
                     "Mortero_saco", self._precio("Mortero_saco")),
             Partida("Muros", "Arena para mortero",
                     f"Proporción 1 saco : {self.p['mezclas']['mortero']['botes_arena_por_bulto']} botes de 19 L",
@@ -470,6 +479,30 @@ class MotorQTO:
         return partidas
 
     def _losa(self) -> list[Partida]:
+        """
+        Losa de techo/entrepiso.
+
+        ⚠️ SUPUESTO DE SISTEMA: este motor modela el techo como panel EPS +
+        capa de compresión de concreto colado -- el sistema tipo "Qualylosa"
+        de Covintec (México), que es de donde viene BASE_TECNICA_EPS_ICF.md.
+
+        Verificado en isotexdominicana.com/techos/ (proveedor real del
+        usuario, RD): NO venden "Qualylosa". Su línea de techos es distinta:
+          - TERMOPANEL®: panel sándwich acero-EPS-acero PREFABRICADO, sin
+            colado de concreto -- estructura de costo completamente
+            diferente a lo que este motor calcula.
+          - ISOLOSA®: EPS + perfil metálico como encofrado, concreto colado
+            encima -- más parecido al modelo actual, pero producto propio
+            con sus propias dimensiones/rendimientos, no genérico.
+
+        NO se implementó un selector de tipo de techo con porcentajes de
+        diferencia: hacerlo sin cotizaciones/fichas reales de TERMOPANEL o
+        ISOLOSA sería inventar números, exactamente lo que esta auditoría
+        viene corrigiendo en todo lo demás. Mientras tanto, el motor sigue
+        usando el sistema tipo Qualylosa como estándar -- razonable como
+        aproximación genérica, pero el usuario debe saber que no es
+        necesariamente el sistema que va a comprar. Ver LIMITACIONES_CONOCIDAS.
+        """
         g, esp = self.geo, self.p["espesores"]
         partidas: list[Partida] = []
 
@@ -530,8 +563,10 @@ class MotorQTO:
                     "[supuesto]"),
             Partida("Acabados", "Pintura",
                     "Vinílica, 3 manos sobre ambas caras de muro "
-                    "(rendimiento de 12 m²/galón: supuesto, sin ficha técnica)", "gal",
-                    g.area_muros_m2 * 2 / 12.0, self._desp("acabados"),
+                    "(rendimiento de 12 m²/galón: supuesto, sin ficha técnica). "
+                    "Redondeado a lata entera: no se vende por fracción de galón "
+                    "(mismo principio del redondeo por unidad física de las mallas).",
+                    "gal", math.ceil(g.area_muros_m2 * 2 / 12.0), self._desp("acabados"),
                     "Pintura_galon", self._precio("Pintura_galon") * f, "[supuesto]"),
             Partida("Acabados", "Cielo raso",
                     "Suministro e instalación", "m²",

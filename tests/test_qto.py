@@ -116,7 +116,9 @@ def test_mortero_usa_2_5_cm_por_cara_no_12_cm():
     mortero = next(p for p in motor.partidas() if p.partida == "Mortero de revoque")
 
     esperado_m3 = g.area_muros_m2 * 2 * P["espesores"]["mortero_muro_por_cara_m"]
-    bultos_esperados = esperado_m3 / P["mezclas"]["mortero"]["rendimiento_m3_por_bulto"]
+    bultos_esperados = math.ceil(
+        esperado_m3 / P["mezclas"]["mortero"]["rendimiento_m3_por_bulto"]
+    )  # el cemento se compra por saco entero (ver test_mortero_se_compra_en_sacos_enteros)
 
     assert mortero.cantidad_neta == pytest.approx(bultos_esperados, rel=1e-6)
 
@@ -896,3 +898,40 @@ def test_rendimiento_de_mortero_actualizado_con_estimacion_sourced():
     mortero = next(p for p in motor.partidas() if p.partida == "Mortero de revoque")
     assert mortero.fuente == "[doc]"
     assert "estimado" in mortero.detalle.lower()
+
+
+def test_limitaciones_documentan_el_hueco_del_sistema_de_techo():
+    """
+    Verificado por web fetch a isotexdominicana.com/techos/: el proveedor
+    real del usuario no vende "Qualylosa" (terminología de Covintec México).
+    Vende TERMOPANEL (sin concreto) o ISOLOSA (con concreto, producto
+    propio). No se inventó un porcentaje de ajuste sin datos reales -- se
+    documenta como limitación pendiente de decisión.
+    """
+    texto = " ".join(MotorQTO.limitaciones_conocidas()).lower()
+    assert "termopanel" in texto
+    assert "isolosa" in texto
+    assert "qualylosa" in texto
+
+
+def test_pintura_se_compra_en_latas_enteras():
+    """
+    Instancia menor del mismo patrón corregido en las mallas: la pintura
+    se vende por galón entero, no por fracción -- antes se calculaba como
+    un valor continuo (ej. 39.01 galones) sin redondear.
+    """
+    motor = MotorQTO(geo())
+    pintura = next(p for p in motor.partidas() if p.partida == "Pintura")
+    assert pintura.cantidad_neta == int(pintura.cantidad_neta)  # es un entero
+
+
+def test_mortero_se_compra_en_sacos_enteros():
+    """
+    Mismo patrón: el cemento se vende por saco de 50 kg entero, no por
+    fracción. La arena y la microfibra se calculan del CONSUMO exacto (sin
+    redondear), pero el saco que se compra sí redondea hacia arriba.
+    """
+    motor = MotorQTO(geo())
+    mortero = next(p for p in motor.partidas() if p.partida == "Mortero de revoque")
+    assert mortero.cantidad_neta == int(mortero.cantidad_neta)  # es un entero
+    assert "saco entero" in mortero.detalle.lower()

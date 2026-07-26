@@ -123,6 +123,29 @@ def convertir_mxn_a_dop(monto_mxn: float) -> float:
 # no una medición independiente -- se marca "referencia", nunca "verificado".
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Sistema de techo: hallazgo pendiente de decisión
+# ---------------------------------------------------------------------------
+# Verificado por web fetch (isotexdominicana.com/techos/, 2026-07-26): el
+# proveedor real del usuario en RD no vende "Qualylosa" (terminología de
+# Covintec México, de donde viene BASE_TECNICA_EPS_ICF.md). Su línea de
+# techos es TERMOPANEL® (sándwich acero-EPS-acero, prefabricado, sin
+# concreto) o ISOLOSA® (EPS + perfil metálico, concreto colado encima).
+#
+# NO se modeló un selector de tipo de techo con porcentajes de diferencia
+# sin cotizaciones/fichas reales de estos dos productos -- inventar un
+# porcentaje de ajuste sería repetir el mismo error que esta auditoría
+# viene corrigiendo. Ver utils/qto.py::LIMITACIONES_CONOCIDAS.
+FUENTE_SISTEMA_TECHO_PENDIENTE = Fuente(
+    valor="TERMOPANEL® / ISOLOSA® (isotexdominicana.com)",
+    tipo="no_disponible",
+    cita="El motor asume un sistema tipo Qualylosa (Covintec México) que "
+         "el proveedor real del usuario no vende. Pendiente decidir qué "
+         "sistema modelar con datos reales antes de presupuestar el techo "
+         "con precisión.",
+)
+
+
 FICHA_ISOTEX_DOMINICANA = {
     "mpanel_ancho_util_m": Fuente(
         valor="1.2 m",
