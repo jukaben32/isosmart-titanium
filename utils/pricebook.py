@@ -6,14 +6,39 @@ from typing import Dict, Tuple
 
 from .storage import read_json, write_json_atomic
 
+# ---------------------------------------------------------------------------
+# Trazabilidad de precios
+# ---------------------------------------------------------------------------
+# El proveedor local en el que se basaba esta lista de precios operaba en
+# efectivo, sin factura ni canal verificable, y esos números no se pueden
+# defender ante un cliente. Mientras se establece un canal de precios
+# auditable en Santo Domingo, dos partidas usan una fuente real —Covintec
+# México, el mismo sistema constructivo (EPS + malla electrosoldada)— y
+# quedan documentadas en utils/fuentes.py:
+#
+#   Panel_Muro (1,072 RD$/m²):
+#     950 MXN/pieza (1.22 x 2.44 m) / 2.9768 m² x 3.36 DOP/MXN
+#     Fuente: Materiales La Libertad (Puebla, México), precio de tienda.
+#     https://materialeslibertad.com/products/panel-covintec-de-2-3-y-4
+#
+#   Malla_Electrosoldada (458 RD$/m²):
+#     49.50 MXN/pieza (0.31 x 1.17 m) / 0.363 m² x 3.36 DOP/MXN
+#     Fuente: Paneles y Plafones MG (México), precio de tienda.
+#     https://plafonesmg.com/product-category/panel-constructivo/panel-covintec/
+#
+# Tipo de cambio: 3.36 DOP/MXN (Xe.com, 26 jul 2026). Ver utils/fuentes.py.
+#
+# El resto sigue en PRECIOS_POR_VERIFICAR: son estimaciones de ingeniería sin
+# cotización real detrás, y así se lo advierte la interfaz al usuario.
+# ---------------------------------------------------------------------------
 DEFAULT_PRICEBOOK: dict[str, float] = {
-    "Panel_Muro": 925.00,
+    "Panel_Muro": 1072.00,      # antes: 925.00 (sin fuente conocida)
     "Panel_Techo": 1125.00,
     "H_3000_PSI": 7350.00,
     "H_3500_PSI": 7950.00,
     "Viga_H_kg": 105.00,
     "Acero_Varilla": 85.00,
-    "Malla_Electrosoldada": 450.00,
+    "Malla_Electrosoldada": 458.00,   # antes: 450.00 (coincide, ahora con fuente)
     "Poliestireno_EPS": 2800.00,
     "Fibra_Acero": 120.00,
     "Aditivo_Impermeabilizante": 850.00,

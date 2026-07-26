@@ -56,8 +56,10 @@ IsoSmart Titanium es una aplicación profesional para la industria de la constru
 | Paso 3: Pricebook dinámico | ✅ | Precios editables, persistencia atómica |
 | Paso 4: Refactor UI modular | ✅ | `ui_*.py` por dominio |
 | **Paso 5: Auditoría — P0/P1** | **✅** | **Bloqueantes cerrados, seguridad, CI, 75 tests** |
-| **Paso 6: Motor QTO (Fase 1)** | **🟡 En curso** | **Partidas completas; faltan precios de proveedor** |
-| Paso 7: Migración total al QTO | ⬜ | Retirar `utils/calculador.py` legado |
+| Paso 6: Motor QTO (Fase 1) | ✅ | Partidas completas |
+| **Paso 7: Trazabilidad de datos** | **✅** | **Cada cifra en pantalla cita su fuente (`utils/fuentes.py`)** |
+| Paso 8: Precios de proveedor local | ⬜ | Sustituir referencias Covintec MX por cotizaciones de RD |
+| Paso 9: Migración total al QTO | ⬜ | Retirar `utils/calculador.py` legado |
 
 ### Correcciones de la auditoría (2026-07-26)
 
@@ -86,6 +88,30 @@ Ver [`AUDITORIA.md`](AUDITORIA.md) para el informe completo. Resumen de lo cerra
 - `data/leads_db.json` no estaba en `.gitignore` → riesgo de publicar PII de clientes.
 - Los leads se perdían en cada reinicio de Streamlit Cloud → `utils/repositorio.py`
   (SQLite / Supabase).
+
+## 📎 Trazabilidad de datos
+
+`utils/fuentes.py` obliga a que cada cifra mostrada en pantalla declare su
+procedencia. Motivado por: la pantalla de inicio mostraba nueve números y tres
+afirmaciones de texto ("Excelente/Regular", "Hasta 45dB/~20dB", "Alta/Media")
+sin ninguna fuente. Se rastrearon uno por uno; los que no tenían fuente
+defendible se retiraron (`SIN_FUENTE_CONOCIDA` documenta por qué), y los que sí
+la tienen citan al fabricante o al índice oficial correspondiente:
+
+```python
+from utils.fuentes import Fuente
+
+Fuente(valor="44 dB", tipo="referencia",
+       cita="Ficha técnica Covintec (panel EPS + malla, México)",
+       url="https://covintec.com/wp-content/uploads/.../ficha-tecnica.pdf")
+```
+
+**Sobre el proveedor local:** el canal de precios en Santo Domingo operaba en
+efectivo, sin factura ni forma de auditarlo. Mientras se establece un canal
+verificable, `Panel_Muro` y `Malla_Electrosoldada` usan precios de Covintec
+México (mismo sistema EPS + malla), convertidos a DOP con tipo de cambio y
+fecha citados. El resto de partidas nuevas siguen marcadas en
+`PRECIOS_POR_VERIFICAR` — la interfaz lo advierte, no lo oculta.
 
 ## 🧾 Motor de cantidades (QTO)
 
