@@ -498,36 +498,42 @@ def calcular_costo_unitario_por_sistema(area_m2: float) -> dict[str, dict]:
 
     Returns:
         Diccionario con costos por sistema
+
+    MIGRACIÓN (revisión de pantallas, 2026-07-26): última llamada viva al
+    motor clásico que quedaba en toda la app -- alimentaba los dos gráficos
+    de "Distribución de Costos" y "Comparativa Isotex vs ICF" del Dashboard
+    Financiero. Ahora usa MotorQTO; se conserva la forma del diccionario para
+    no tocar los gráficos que lo consumen.
     """
-    from utils.calculador import BudgetCalculator
+    from utils.geometria import Geometria
+    from utils.qto import CATEGORIAS_OBRA_GRIS, MotorQTO
 
     precios = DEFAULT_PRICEBOOK
     resultados = {}
 
-    sistemas = ["Paneles Isotex", "ICF Proform"]
+    sistemas = {"Paneles Isotex": "isotex", "ICF Proform": "icf"}
+    geo = Geometria(area_m2=area_m2)
 
-    for sistema in sistemas:
-        obra_gris, obra_terminada = BudgetCalculator.calcular_presupuesto_completo(
-            m2=area_m2,
-            sistema=sistema,
-            precios=precios,
-            incluir_vigas=True,
-            calidad_terminados="media"
+    for etiqueta, sistema_qto in sistemas.items():
+        motor = MotorQTO(geo, precios, sistema=sistema_qto, calidad="media")
+        df = motor.presupuesto()
+
+        obra_gris_categorias = (
+            df[df["categoria"].isin(CATEGORIAS_OBRA_GRIS)]
+            .groupby("categoria")["subtotal"].sum().to_dict()
+        )
+        obra_term_categorias = (
+            df[~df["categoria"].isin(CATEGORIAS_OBRA_GRIS)]
+            .groupby("categoria")["subtotal"].sum().to_dict()
         )
 
-        total = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-
-        # Desglose por categoría
-        obra_gris_categorias = obra_gris.groupby('Categoria')['Subtotal'].sum().to_dict()
-        obra_term_categorias = obra_terminada.groupby('Categoria')['Subtotal'].sum().to_dict()
-
-        resultados[sistema] = {
-            'costo_total': total,
-            'costo_m2': total / area_m2,
-            'obra_gris_total': obra_gris['Subtotal'].sum(),
-            'obra_terminada_total': obra_terminada['Subtotal'].sum(),
+        resultados[etiqueta] = {
+            'costo_total': motor.total(),
+            'costo_m2': motor.costo_m2(),
+            'obra_gris_total': motor.total_obra_gris(),
+            'obra_terminada_total': motor.total_obra_terminada(),
             'categorias_obra_gris': obra_gris_categorias,
-            'categorias_obra_terminada': obra_term_categorias
+            'categorias_obra_terminada': obra_term_categorias,
         }
 
     return resultados

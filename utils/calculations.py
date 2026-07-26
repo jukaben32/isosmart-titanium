@@ -1,5 +1,17 @@
 """
 Módulo de cálculos avanzados para IsoSmart Titanium
+
+⚠️ CÓDIGO MUERTO (verificado 2026-07-26): ninguna pantalla de la app importa
+`CalculadoraEstructural`, `CalculadoraMateriales` ni
+`calcular_costo_unitario_compuesto`. El único importador es su propio test
+(`tests/test_calculations.py`). No es el motor legado (ese es
+`utils/calculador.py`) ni el motor actual (`utils/qto.py`): es un tercer
+prototipo que nunca llegó a conectarse a la interfaz.
+
+Antes de borrarlo: si alguna de estas fórmulas es útil, migrarla a
+`utils/qto.py` con su fuente documentada (`docs/BASE_TECNICA_EPS_ICF.md` o
+`utils/fuentes.py`), igual que el resto del motor. Si no, este archivo puede
+eliminarse sin que nada deje de funcionar.
 """
 
 import math

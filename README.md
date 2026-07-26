@@ -59,7 +59,7 @@ IsoSmart Titanium es una aplicación profesional para la industria de la constru
 | Paso 6: Motor QTO (Fase 1) | ✅ | Partidas completas |
 | **Paso 7: Trazabilidad de datos** | **✅** | **Cada cifra en pantalla cita su fuente (`utils/fuentes.py`)** |
 | Paso 8: Precios de proveedor local | ⬜ | Sustituir referencias Covintec MX por cotizaciones de RD |
-| Paso 9: Migración total al QTO | ⬜ | Retirar `utils/calculador.py` legado |
+| **Paso 9: Migración total al QTO** | **✅** | **Cero llamadas vivas al motor clásico (verificado, `tests/test_migracion_legado.py`)** |
 
 ### Correcciones de la auditoría (2026-07-26)
 

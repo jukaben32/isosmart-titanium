@@ -1,6 +1,23 @@
 """
 utils/calculador.py
 -------------------
+⚠️ MOTOR LEGADO — RETIRADO DE LA RUTA DE CÁLCULO EN VIVO (2026-07-26)
+
+Este era el motor de presupuesto original. Producía 9.6% de obra terminada,
+un ahorro fijo del 83.6% (gris EPS vs obra TERMINADA tradicional -- peras con
+manzanas) y `area_muros = m2 * 2.2` en vez de la geometría real del proyecto.
+
+`utils/qto.py::MotorQTO` es la fuente de verdad desde la Fase 1 de la
+auditoría. Verificado el 2026-07-26 que NINGUNA pantalla llama ya a
+`BudgetCalculator` (ver `tests/test_migracion_legado.py`). Este archivo se
+conserva únicamente para que `tests/comparar_calculadoras.py` siga fijando
+sus números históricos como test de regresión del motor viejo -- no para
+alimentar ninguna pantalla.
+
+No conectar `BudgetCalculator` a ninguna pantalla nueva. Si necesitas una
+partida que MotorQTO no tiene, agrégala allí.
+----------------------------------------------------------------------
+
 Motor de Presupuesto ÚNICO y desacoplado para IsoSmart Titanium.
 
 Esta es la FUENTE DE VERDAD del cálculo de presupuestos (unificado el 2026-07-10).
