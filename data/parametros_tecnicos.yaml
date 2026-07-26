@@ -101,7 +101,30 @@ mezclas:
 # Anclaje y mallas de refuerzo
 # ---------------------------------------------------------------------------
 anclaje:
-  anclas_por_panel: 3               # [doc] varilla 3/8", cada 40 cm, 3 por panel
+  # [doc] VERIFICADO con NotebookLM del usuario: 3 anclas surge de dividir
+  # el ancho de panel (1.22 m) entre la separación (0.40 m) ≈ 3 -- es
+  # independiente de la altura del muro (confirmado para muros de 2.84 y
+  # 3.05 m en una sola pieza, mismo conteo en la base).
+  #
+  # ⚠️ CORREGIDO -- faltaba por completo la mitad del anclaje: "si el muro
+  # se conecta a una losa o trabe superior, se suman otras 3 anclas en la
+  # parte alta, dando un total de 6 por panel". Como este motor SIEMPRE
+  # calcula una losa de techo/entrepiso apoyada sobre los muros (es
+  # prácticamente universal en una vivienda residencial), se asume que
+  # TODOS los paneles tienen esa conexión superior. Antes solo se contaban
+  # las 3 anclas de la base -- el anclaje real estaba subestimado a la
+  # mitad para el caso general.
+  #
+  # NO implementado (casos especiales, fuera del alcance del modelo
+  # general residencial):
+  #   - Muros iniciales/finales que conectan con columnas de concreto o
+  #     marcos de acero (obra híbrida): 12-15 anclas por panel.
+  #   - Bardas de lindero / muros de colindancia (anclaje en ambas caras,
+  #     alternado): 6 por panel, pero por un motivo distinto (staggered
+  #     en ambas caras, no base+tope).
+  # Si el proyecto tiene alguno de estos casos, esta partida se queda
+  # corta y debe ajustarse manualmente.
+  anclas_por_panel: 6               # antes: 3 (solo base, sin conexión superior)
   separacion_m: 0.40                # [doc] CONFIRMADO: Manual Técnico Panel Covintec
                                      # 2011 dice "separación de 40 cm" -- coincide.
   # ---------------------------------------------------------------------

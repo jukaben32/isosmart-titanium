@@ -402,13 +402,16 @@ class MotorQTO:
                      * anclaje["peso_varilla_3_8_kg_por_m"]
                      * self._factores_zona["acero"])
         partidas.append(
-            Partida("Muros", "Anclas / bastones 3/8\" (recibidores de cortante en 'U')",
-                    f"{n_anclas} anclas cada {anclaje['separacion_m']*100:.0f} cm: "
-                    f"{anclaje['longitud_empotrada_m']*100:.0f} cm empotrados en la losa de "
-                    f"cimentación + {anclaje['longitud_libre_muro_m']*100:.0f} cm libres hacia "
-                    f"el muro. Conflicto de fuentes RESUELTO con el Manual Técnico Panel "
-                    f"Covintec 2011 (fuente primaria del fabricante): antes se usaba 5 cm "
-                    f"empotrados, de BASE_TECNICA_EPS_ICF.md.",
+            Partida("Muros", "Anclas / bastones 3/8\" (base + conexión superior a losa)",
+                    (f"{n_anclas} anclas ({anclaje['anclas_por_panel']} por panel: 3 en la base "
+                     f"cada {anclaje['separacion_m']*100:.0f} cm + 3 en la conexión superior a la "
+                     f"losa de techo/entrepiso, siempre presente en este modelo). Base: "
+                     f"{anclaje['longitud_empotrada_m']*100:.0f} cm empotrados en la losa de "
+                     f"cimentación + {anclaje['longitud_libre_muro_m']*100:.0f} cm libres hacia "
+                     f"el muro (Manual Técnico Panel Covintec 2011). Antes: solo 3 anclas "
+                     f"(base únicamente) -- faltaba la mitad del anclaje real. No incluye "
+                     f"casos especiales (columnas híbridas: 12-15/panel; bardas de "
+                     f"colindancia: refuerzo en ambas caras)."),
                     "kg", kg_anclas, self._desp("acero"),
                     "Acero_Varilla", self._precio("Acero_Varilla"))
         )

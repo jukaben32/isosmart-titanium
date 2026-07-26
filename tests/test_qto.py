@@ -392,7 +392,7 @@ def test_partidas_con_formula_real_del_documento_si_se_marcan_doc():
         "Malla esquinera externa",      # producto distinto, misma fórmula
         "Aplanado (manual)",            # 15-20 m²/día, doc sección 5
         "Losa de cimentación (platea)",  # 200 kg/cm², Manual Técnico Covintec 2011
-        "Anclas / bastones 3/8\" (recibidores de cortante en 'U')",  # Manual Técnico Covintec 2011
+        "Anclas / bastones 3/8\" (base + conexión superior a losa)",  # Manual Técnico Covintec 2011
     )
     for nombre in deben_ser_doc:
         assert partidas_por_nombre[nombre].fuente == "[doc]", nombre
@@ -790,3 +790,23 @@ def test_electrosoldada_advierte_sobre_desperdicio_de_redondeo_no_incluido():
     motor = MotorQTO(geo())
     electrosoldada = next(p for p in motor.partidas() if p.partida == "Malla electrosoldada 10x10")
     assert "redondear a hojas completas" in electrosoldada.detalle
+
+
+def test_anclas_incluyen_conexion_superior_a_losa():
+    """
+    Bug: solo se contaban las 3 anclas de la base. El usuario aportó la
+    verificación completa: "si el muro se conecta a una losa o trabe
+    superior, se suman otras 3 anclas en la parte alta, dando un total de
+    6 por panel" -- como este motor SIEMPRE calcula una losa apoyada sobre
+    los muros (universal en vivienda residencial), el anclaje real estaba
+    subestimado a la mitad.
+    """
+    assert P["anclaje"]["anclas_por_panel"] == 6  # antes: 3 (solo base)
+
+    motor = MotorQTO(geo())
+    anclas = next(p for p in motor.partidas() if "Anclas" in p.partida)
+    n_esperado = motor.geo.n_paneles_muro * 6
+    kg_esperado = (n_esperado * P["anclaje"]["longitud_ancla_m"]
+                  * P["anclaje"]["peso_varilla_3_8_kg_por_m"])
+    assert anclas.cantidad_neta == pytest.approx(kg_esperado, rel=1e-6)
+    assert "conexión superior" in anclas.detalle
