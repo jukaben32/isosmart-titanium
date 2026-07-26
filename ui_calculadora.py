@@ -42,7 +42,6 @@ from utils.plan_geometry import (
 )
 from utils.pricebook import Pricebook
 from utils.qto import CATEGORIAS_OBRA_GRIS, MotorQTO
-from utils.storage import read_json, write_json_atomic
 
 
 def render_modulo_vision_y_canvas(modelo_gemini):
@@ -646,10 +645,9 @@ def pagina_contacto():
 
         ### 🔗 Redes Sociales
 
-        - [Facebook](#)
-        - [Instagram](#)
-        - [YouTube](#)
-        - [LinkedIn](#)
+        - [Facebook](https://www.facebook.com/IsotexRD/)
+        - [Instagram](https://www.instagram.com/isotexrd/)
+        - [Twitter/X](https://twitter.com/IsotexD)
         """)
 
     st.divider()
@@ -659,86 +657,22 @@ def pagina_contacto():
     st.map([{"lat": 18.4861, "lon": -69.9312}])  # Santo Domingo
 
 
-def render_pestana_configuracion_precios():
-    """Pestaña administrativa para actualizar costos de materiales en tiempo real."""
-    st.subheader("⚙️ Panel de Control del Libro de Precios RD")
-    st.caption("Modifica los costos básicos del mercado dominicano. Los cambios afectarán los nuevos cálculos de presupuesto de forma inmediata.")
-
-    # Aviso de referencia: los precios actuales son provisionales hasta
-    # confirmacion oficial de Isotex Dominicana (pendiente de lista de precios).
-    st.info(
-        "ℹ️ **Precios de referencia.** Los valores actuales son provisionales, "
-        "estimados a partir de referencias del mercado (Covintex MX/BR convertidos a RD$). "
-        "Pendiente de confirmación oficial de **Isotex Dominicana** "
-        "(info@grupoisotex.net). Actualiza aquí los precios reales en cuanto los tengas.",
-        icon="ℹ️",
-    )
-
-    # Instanciación del Pricebook (Usa el tuyo propio de utils.pricebook)
-    ruta_preciobook = os.path.join("data", "pricebook.json")
-    
-    # Asegurar directorio data existente
-    os.makedirs("data", exist_ok=True)
-    
-    # Cargamos el estado actual
-    if "pricebook_obj" not in st.session_state:
-        # Si tu clase Pricebook requiere inicialización con dict, adaptamos:
-        st.session_state["pricebook_obj"] = Pricebook(ruta_preciobook)
-    
-    pb = st.session_state["pricebook_obj"]
-    
-    # Intentar leer los precios desde el archivo o usar fallback si está vacío
-    precios_actuales = pb.get_all_prices() if hasattr(pb, 'get_all_prices') else read_json(ruta_preciobook, default={})
-    
-    if not precios_actuales:
-        # Fallback de seguridad con tus datos por defecto si el JSON no existe
-        precios_actuales = {
-            "Panel_Muro": 925.00, "Panel_Techo": 1125.00, "H_3000_PSI": 7350.00,
-            "H_3500_PSI": 7950.00, "Viga_H_kg": 105.00, "Acero_Varilla": 85.00,
-            "Ceramica_m2": 450.00, "Pintura_galon": 1200.00, "Puerta_interior": 8500.00
-        }
-        write_json_atomic(ruta_preciobook, precios_actuales)
-
-    # UI dividida por categorías de insumos para que sea cómoda de leer
-    tab_cat1, tab_cat2 = st.tabs(["🏗️ Estructura y Obra Gris", "🎨 Terminaciones y Acabados"])
-    
-    nuevos_precios = precios_actuales.copy()
-    
-    with tab_cat1:
-        st.markdown("#### Materiales Base e Insumos Críticos")
-        col1, col2 = st.columns(2)
-        with col1:
-            nuevos_precios["Panel_Muro"] = st.number_input("Panel Isotex / Bloque Muro (RD$/m²)", min_value=1.0, value=float(precios_actuales.get("Panel_Muro", 925.0)))
-            nuevos_precios["Panel_Techo"] = st.number_input("Panel Isotex Losa / Techo (RD$/m²)", min_value=1.0, value=float(precios_actuales.get("Panel_Techo", 1125.0)))
-            nuevos_precios["Acero_Varilla"] = st.number_input("Acero de Varilla Corrugada (RD$/kg)", min_value=1.0, value=float(precios_actuales.get("Acero_Varilla", 85.0)))
-        with col2:
-            nuevos_precios["H_3000_PSI"] = st.number_input("Hormigón Premezclado 3000 PSI (RD$/m³)", min_value=1.0, value=float(precios_actuales.get("H_3000_PSI", 7350.0)))
-            nuevos_precios["H_3500_PSI"] = st.number_input("Hormigón Premezclado 3500 PSI (RD$/m³)", min_value=1.0, value=float(precios_actuales.get("H_3500_PSI", 7950.0)))
-            nuevos_precios["Viga_H_kg"] = st.number_input("Perfil de Acero Viga H (RD$/kg)", min_value=1.0, value=float(precios_actuales.get("Viga_H_kg", 105.0)))
-
-    with tab_cat2:
-        st.markdown("#### Elementos de Obra Terminada")
-        col3, col4 = st.columns(2)
-        with col3:
-            nuevos_precios["Ceramica_m2"] = st.number_input("Revestimiento Cerámica Base (RD$/m²)", min_value=1.0, value=float(precios_actuales.get("Ceramica_m2", 450.0)))
-            nuevos_precios["Pintura_galon"] = st.number_input("Pintura Vinílica Premium (RD$/galón)", min_value=1.0, value=float(precios_actuales.get("Pintura_galon", 1200.0)))
-        with col4:
-            nuevos_precios["Puerta_interior"] = st.number_input("Puerta Interior estándar con herraje (RD$/ud)", min_value=1.0, value=float(precios_actuales.get("Puerta_interior", 8500.0)))
-
-    st.markdown("---")
-    if st.button("💾 Guardar y Sincronizar Libro de Precios", use_container_width=True, type="primary"):
-        # Guardar de forma atómica usando tus utilitarios compartidos
-        if hasattr(pb, 'save_prices'):
-            pb.save_prices(nuevos_precios)
-        else:
-            write_json_atomic(ruta_preciobook, nuevos_precios)
-            
-        st.session_state["precios_sincronizados"] = nuevos_precios
-        st.success("¡Libro de precios actualizado con éxito! Los cambios se guardaron de forma segura en la base de datos atómica.")
-
-    # Guardamos siempre en session_state para que el calculador lo lea sin re-leer el disco cada segundo
-    if "precios_sincronizados" not in st.session_state:
-        st.session_state["precios_sincronizados"] = nuevos_precios
+# ============================================================================
+# NOTA (revisión de pantallas, 2026-07-26): existía aquí
+# `render_pestana_configuracion_precios()`, un tercer panel de precios,
+# completamente inalcanzable -- ninguna pantalla la llamaba, ni siquiera un
+# test. Solo cubría 9 de los 39 materiales y su fallback usaba
+# `Panel_Muro: 925.00`, el precio sin fuente que ya se corrigió a 1,072
+# (Covintec México, ver utils/pricebook.py). Además llamaba a
+# `pb.get_all_prices()` / `pb.save_prices()`, métodos que no existen en la
+# clase `Pricebook` actual (son `load()` / `save()`).
+#
+# El panel de precios real y con las 39 partidas está en
+# `ui_presupuesto.py::render_pestana_pricebook()`. Se retira el duplicado en
+# vez de mantenerlo como código muerto: a diferencia de utils/calculations.py
+# (que se conservó marcado por si sus fórmulas resultan útiles), aquí no hay
+# ninguna fórmula que rescatar, solo una copia obsoleta de la interfaz.
+# ============================================================================
 
 
 def pagina_plano_estructura():

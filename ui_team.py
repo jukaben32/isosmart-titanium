@@ -48,41 +48,57 @@ def pagina_team():
 
     st.divider()
 
-    # Galería de proyectos
-    st.markdown("### 🏠 Proyectos Realizados")
+    # ------------------------------------------------------------------
+    # Galería de proyectos.
+    #
+    # ANTES: fotos de stock de Unsplash con pies de foto que simulaban ser
+    # proyectos reales de la empresa ("Vivienda Unifamiliar - 150m²",
+    # "Edificio de Apartamentos"). Presentar fotografía de stock como
+    # documentación del propio trabajo terminado es exactamente lo que el
+    # principio de trazabilidad de esta app prohíbe: un dato (aquí, una
+    # imagen) que parece evidencia real sin serlo.
+    # ------------------------------------------------------------------
+    st.markdown("### 🏠 Nuestro Sistema Constructivo")
+    st.caption(
+        "Las imágenes de esta sección son ilustrativas (no son fotos de "
+        "proyectos propios). Cuando existan fotos reales de obras ejecutadas, "
+        "deben reemplazar a estas."
+    )
 
     col_gal1, col_gal2, col_gal3 = st.columns(3)
 
     with col_gal1:
         st.image("https://images.unsplash.com/photo-1590059390239-03c9e7064e92?w=400",
-                 caption="Vivienda Unifamiliar - 150m²", use_container_width=True)
+                 caption="Ilustrativa: instalación de panel EPS", use_container_width=True)
 
     with col_gal2:
         st.image("https://images.unsplash.com/photo-1582268611958-ebfd161ef9cf?w=400",
-                 caption="Edificio de Apartamentos", use_container_width=True)
+                 caption="Ilustrativa: construcción residencial", use_container_width=True)
 
     with col_gal3:
         st.image("https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=400",
-                 caption="Local Comercial", use_container_width=True)
+                 caption="Ilustrativa: local comercial", use_container_width=True)
 
     st.divider()
 
-    # Testimonios (placeholder)
-    st.markdown("### 💬 Lo Que Dicen Nuestros Clientes")
-
-    st.markdown("""
-    <div class="info-card">
-        <em>"Construí mi vivienda con el sistema Isotex y estoy muy satisfecho. La casa quedó
-        más fresca y el ahorro en el aire acondicionado es notable. El team fue muy profesional."</em>
-        <br><strong>- Juan P., Santo Domingo</strong>
-    </div>
-
-    <div class="info-card">
-        <em>"Como ingeniero, estaba escéptico al principio. Pero después de ver los resultados
-        y los cálculos estructurales, quedé convencido. Es un sistema válido y eficiente."</em>
-        <br><strong>- Arq. María G., Santiago</strong>
-    </div>
-    """, unsafe_allow_html=True)
+    # ------------------------------------------------------------------
+    # ANTES: esta sección mostraba dos citas atribuidas a "Juan P., Santo
+    # Domingo" y "Arq. María G., Santiago" bajo el título "Lo Que Dicen
+    # Nuestros Clientes". El propio comentario del código decía
+    # "Testimonios (placeholder)" -- eran fabricados, no clientes reales.
+    # Presentar testimonios inventados con nombres de personas como si
+    # fueran reseñas reales es publicidad engañosa, no un dato con fuente
+    # débil: no hay ninguna fuente porque no hay ningún cliente real detrás.
+    #
+    # Se retira hasta que existan testimonios reales que recopilar (con
+    # consentimiento del cliente para citarlo).
+    # ------------------------------------------------------------------
+    st.markdown("### 💬 Testimonios de Clientes")
+    st.info(
+        "Aún no se han recopilado testimonios de clientes reales para "
+        "mostrar aquí. En cuanto existan (con su consentimiento para "
+        "publicarlos), reemplazan a este aviso."
+    )
 # ============================================================================
 # PASO 1: INTEGRACIÓN DE CANVAS GEOMÉTRICO Y VISIÓN IA
 # ============================================================================

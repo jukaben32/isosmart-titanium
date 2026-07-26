@@ -106,6 +106,66 @@ def convertir_mxn_a_dop(monto_mxn: float) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Fichas técnicas verificadas — Isotex Dominicana (proveedor local, RD)
+# ---------------------------------------------------------------------------
+# Fuente: isotexdominicana.com, fabricante que opera en Santo Domingo desde
+# 2005 (Parque Industrial Duarte, Autopista Duarte Km 22 1/2). El teléfono y
+# correo que aparecen en ui_team.py (+809 561 5599, info@grupoisotex.net)
+# coinciden exactamente con los publicados en su sitio -- es contacto real,
+# no inventado.
+#
+# Esta es una fuente MEJOR que Covintec México (FICHA_COVINTEC más abajo)
+# para las partidas donde ya está disponible: es el mercado local real, no
+# una referencia de otro país. Ficha técnica en PDF enlazada desde la propia
+# página del producto.
+#
+# El "ahorro hasta 65%" es una afirmación del FABRICANTE (marketing propio),
+# no una medición independiente -- se marca "referencia", nunca "verificado".
+# ---------------------------------------------------------------------------
+
+FICHA_ISOTEX_DOMINICANA = {
+    "mpanel_ancho_util_m": Fuente(
+        valor="1.2 m",
+        tipo="referencia",
+        cita="Ficha técnica MPanel®, Isotex Dominicana (Santo Domingo, RD)",
+        url="https://isotexdominicana.com/paredes/mpanel/",
+    ),
+    "mpanel_densidad_eps_kg_m3": Fuente(
+        valor="13-15 kg/m³",
+        tipo="referencia",
+        cita="Ficha técnica MPanel®, Isotex Dominicana",
+        url="https://isotexdominicana.com/paredes/mpanel/",
+    ),
+    "mpanel_espesor_pared_terminada_mm": Fuente(
+        valor="90-270 mm",
+        tipo="referencia",
+        cita="Ficha técnica MPanel®, Isotex Dominicana",
+        url="https://isotexdominicana.com/paredes/mpanel/",
+    ),
+    "termopanel_peso_kg_m2": Fuente(
+        valor="8-15 kg/m²",
+        tipo="referencia",
+        cita="Ficha técnica Termopanel® (techos), Isotex Dominicana",
+        url="https://isotexdominicana.com/techos/termopanel/",
+    ),
+    "termopanel_resistencia_termica_k": Fuente(
+        valor="K = 0.343",
+        tipo="referencia",
+        cita="Ficha técnica Termopanel® (techos), Isotex Dominicana",
+        url="https://isotexdominicana.com/techos/termopanel/",
+    ),
+    "mpanel_ahorro_energetico_pct": Fuente(
+        valor="hasta 65%",
+        tipo="referencia",
+        cita="Afirmación del FABRICANTE (Isotex Dominicana), no una medición "
+             "independiente: 'Ahorro hasta un 65% de la energía necesaria "
+             "para acondicionar los ambientes construidos'",
+        url="https://isotexdominicana.com/paredes/mpanel/",
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
 # Fichas técnicas verificadas — panel Covintec (México)
 # ---------------------------------------------------------------------------
 # Fuente: covintec.com/fichas-tecnicas/ (fichas técnicas oficiales del

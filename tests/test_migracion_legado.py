@@ -138,3 +138,24 @@ def test_motorqto_sigue_siendo_el_unico_motor_activo():
 
     motor = MotorQTO(Geometria(area_m2=120), DEFAULT_PRICEBOOK)
     assert motor.total() > 0
+
+
+def test_no_reaparece_el_tercer_panel_de_precios_muerto():
+    """
+    render_pestana_configuracion_precios() era un tercer panel de precios,
+    completamente inalcanzable, con un fallback de precio SIN FUENTE
+    (Panel_Muro=925, ya corregido a 1072 en utils/pricebook.py). Se eliminó
+    en vez de marcarse como muerto porque no había ninguna fórmula que
+    rescatar, solo una copia obsoleta de la interfaz real
+    (ui_presupuesto.py::render_pestana_pricebook).
+    """
+    codigo = _sin_docstring_ni_comentarios("ui_calculadora.py")
+    assert "def render_pestana_configuracion_precios" not in codigo
+    assert "925.00" not in codigo
+
+
+def test_no_reaparecen_enlaces_de_redes_sociales_muertos():
+    """Los enlaces '#' de Facebook/Instagram/YouTube/LinkedIn no llevaban a ningún sitio."""
+    codigo = Path("ui_calculadora.py").read_text(encoding="utf-8")
+    assert "[Facebook](#)" not in codigo
+    assert "facebook.com/IsotexRD" in codigo
