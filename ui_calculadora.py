@@ -1,56 +1,47 @@
 # -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
-import streamlit as st
+import base64
+import hashlib
+import html
+import os
+from datetime import datetime
+from io import BytesIO
+
+import google.generativeai as genai
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import google.generativeai as genai
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime, date
-from fpdf import FPDF
-import base64
-import json
-import os
-from io import BytesIO
-from typing import Dict, List, Optional, Tuple
-import hashlib
-import time
-
-from utils.pricebook import Pricebook
-from utils.storage import list_dict_values, read_json, write_json_atomic
-from utils.gemini_plan import analyze_plan_image_with_gemini
-from utils.plan_geometry import (
-    polygon_area_perimeter,
-    polygon_from_canvas,
-    scale_from_canvas_line,
-    extract_line_segments,
-    extract_points,
-)
-from utils.pdf_utils import pdf_first_page_to_image
-from utils.catalog import Catalog
-from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
-from utils.ai_media import generate_facade_image_fal, generate_video_luma
-from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
-from utils.calculador import BudgetCalculator
-from utils.energia import AnalisisEnergetico
+import streamlit as st
+from PIL import Image
 
 # Helpers compartidos desde ui_core
 from ui_core import (
-    sincronizar_parametros_globales,
-    ProjectManager,
     PDFGenerator,
+    ProjectManager,
+    calc_h_beams_kg,
     create_download_link,
-    initialize_gemini,
-    get_gemini_api_key_from_config,
-    get_fal_key_from_config,
-    get_luma_key_from_config,
-    init_text_design_state,
-    render_text_design_assistant,
     estimate_build_time_days,
     estimate_foundation_volume_m3,
-    calc_h_beams_kg,
+    get_gemini_api_key_from_config,
+    initialize_gemini,
+    render_text_design_assistant,
+    sincronizar_parametros_globales,
+    st_canvas,
 )
-from ui_vision import render_integradora_vision_canvas
+from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS
+from utils.calculador import BudgetCalculator
+from utils.financiera import AnalisisFinanciero
+from utils.gemini_plan import analyze_plan_image_with_gemini
+from utils.pdf_utils import pdf_first_page_to_image
+from utils.plan_geometry import (
+    extract_line_segments,
+    extract_points,
+    polygon_area_perimeter,
+    polygon_from_canvas,
+    scale_from_canvas_line,
+)
+from utils.pricebook import Pricebook
+from utils.storage import read_json, write_json_atomic
+
 
 def render_modulo_vision_y_canvas(modelo_gemini):
     """
@@ -513,7 +504,11 @@ def pagina_calculadora():
                         "from": "onboarding@resend.dev",
                         "to": [email_dest],
                         "subject": f"Presupuesto de Construcción - {cliente}",
-                        "html": f"<p>Hola {cliente},</p><p>Adjunto encontrará su presupuesto estimado para la construcción con sistema {sistema_sel}.</p>",
+                        "html": (
+                            f"<p>Hola {html.escape(str(cliente))},</p>"
+                            f"<p>Adjunto encontrará su presupuesto estimado para la "
+                            f"construcción con sistema {html.escape(str(sistema_seleccionado))}.</p>"
+                        ),
                         "attachments": [
                             {
                                 "filename": f"Presupuesto_{cliente}.pdf",

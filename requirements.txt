@@ -1,15 +1,37 @@
-streamlit>=1.32.0
-pandas>=2.0.0,<3.1.0
-plotly>=5.18.0
-google-generativeai>=0.4.0
-Pillow>=10.0.0,<12.3.0
-fpdf2>=2.7.0
-reportlab>=4.0.0
-openpyxl>=3.1.0
-xlsxwriter>=3.1.0
-python-dateutil>=2.8.2
-streamlit-drawable-canvas>=0.9.3
-PyMuPDF>=1.24.0
-requests>=2.31.0
-numpy>=1.24.0,<2.5.0
-numpy-financial>=1.0.0
+# ---------------------------------------------------------------------------
+# IsoSmart Titanium - dependencias
+#
+# Antes todo era `>=` sin techo. Ese es exactamente el origen del bug del PDF:
+# el código estaba escrito contra el fpdf clásico y pip instalaba fpdf2 2.8.x,
+# cuyo output() devuelve bytearray en vez de str. Dos despliegues en fechas
+# distintas podían producir aplicaciones distintas.
+#
+# Ahora cada dependencia lleva techo de major. Para actualizar: subir el techo a
+# conciencia y dejar que CI corra los tests.
+# ---------------------------------------------------------------------------
+
+streamlit>=1.36,<2.0
+pandas>=2.0,<3.0
+numpy>=1.24,<3.0
+numpy-financial>=1.0,<2.0
+PyYAML>=6.0,<7.0
+
+plotly>=5.18,<7.0
+
+# IA
+google-generativeai>=0.4,<0.9      # TODO: migrar a `google-genai` (SDK nuevo)
+
+# Imagen / PDF
+Pillow>=10.0,<12.0
+fpdf2>=2.7,<3.0
+reportlab>=4.0,<5.0
+PyMuPDF>=1.24,<2.0
+
+# Exportación
+openpyxl>=3.1,<4.0
+xlsxwriter>=3.1,<4.0
+
+# Utilidades
+python-dateutil>=2.8,<3.0
+requests>=2.31,<3.0
+streamlit-drawable-canvas>=0.9,<1.0

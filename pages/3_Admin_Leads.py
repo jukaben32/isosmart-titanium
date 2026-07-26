@@ -1,30 +1,67 @@
 # -*- coding: utf-8 -*-
-import streamlit as st
-import pandas as pd
-import json
+import hmac
 import os
-from io import BytesIO
-import base64
+import sys
+
+import pandas as pd
+import streamlit as st
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.repositorio import obtener_repositorio  # noqa: E402
 
 st.set_page_config(page_title="CRM - Leads", page_icon="🗃️", layout="wide")
 
 st.title("🗃️ Panel de Administración - Leads")
 
-# Obtener clave maestra de las variables de entorno o st.secrets
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")  # Fallback a admin123
+# ---------------------------------------------------------------------------
+# Clave maestra.
+#
+# SIN FALLBACK. La versión anterior caía a "admin123", de modo que un despliegue
+# sin variable de entorno exponía el CRM completo (nombres, correos, teléfonos)
+# a cualquiera con la URL. Si no hay clave configurada, la página no carga.
+# ---------------------------------------------------------------------------
+def _get_admin_password() -> str:
+    try:
+        valor = st.secrets.get("ADMIN_PASSWORD", "")
+        if valor:
+            return str(valor)
+    except Exception:
+        pass
+    return os.environ.get("ADMIN_PASSWORD", "")
 
-if "admin_logged_in" not in st.session_state:
-    st.session_state.admin_logged_in = False
+
+ADMIN_PASSWORD = _get_admin_password()
+
+if not ADMIN_PASSWORD:
+    st.error(
+        "🔒 Panel deshabilitado: no hay `ADMIN_PASSWORD` configurada.\n\n"
+        "Defínela en *Streamlit Secrets* o como variable de entorno para habilitar el CRM."
+    )
+    st.stop()
+
+MAX_INTENTOS = 5
+
+st.session_state.setdefault("admin_logged_in", False)
+st.session_state.setdefault("admin_intentos", 0)
 
 if not st.session_state.admin_logged_in:
     st.markdown("### 🔒 Acceso Restringido")
+
+    if st.session_state.admin_intentos >= MAX_INTENTOS:
+        st.error("❌ Demasiados intentos fallidos. Recarga la página para volver a intentarlo.")
+        st.stop()
+
     password = st.text_input("Ingrese la clave maestra", type="password")
     if st.button("Ingresar"):
-        if password == ADMIN_PASSWORD:
+        # compare_digest evita filtrar información por tiempo de respuesta
+        if hmac.compare_digest(password, ADMIN_PASSWORD):
             st.session_state.admin_logged_in = True
+            st.session_state.admin_intentos = 0
             st.rerun()
         else:
-            st.error("❌ Clave incorrecta")
+            st.session_state.admin_intentos += 1
+            restantes = MAX_INTENTOS - st.session_state.admin_intentos
+            st.error(f"❌ Clave incorrecta. Intentos restantes: {max(0, restantes)}")
     st.stop()
 
 # Si está logueado
@@ -35,15 +72,17 @@ if st.button("Cerrar Sesión"):
 st.markdown("### 📋 Listado de Contactos (Leads)")
 
 def load_leads():
-    leads_path = os.path.join("data", "leads_db.json")
-    if os.path.exists(leads_path):
-        try:
-            with open(leads_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            st.error(f"Error al leer la base de datos: {e}")
-            return []
-    return []
+    """
+    Lee los leads del repositorio activo (Supabase si hay credenciales,
+    SQLite en caso contrario). Antes leía `data/leads_db.json`, que en
+    Streamlit Cloud se borraba en cada reinicio del contenedor.
+    """
+    try:
+        return obtener_repositorio().listar()
+    except Exception as e:
+        st.error(f"No se pudo leer el repositorio de leads: {e}")
+        return []
+
 
 leads = load_leads()
 

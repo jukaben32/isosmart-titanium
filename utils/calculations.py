@@ -4,10 +4,9 @@ Módulo de cálculos avanzados para IsoSmart Titanium
 """
 
 import math
-import numpy as np
-from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
+from typing import Dict, Tuple
 
 
 class TipoSistema(Enum):

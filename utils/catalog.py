@@ -5,7 +5,6 @@ from typing import Any, Dict, List
 
 from .storage import read_json, write_json_atomic
 
-
 DEFAULT_CATALOG: Dict[str, Any] = {
     "provider": {
         "name": "Isotex Dominicana",

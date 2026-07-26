@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 import re
-import streamlit as st
 from typing import Any, Dict, Optional, Tuple
 
+import streamlit as st
 
 DEFAULT_TEXT_DESIGN_PARAMS: Dict[str, Any] = {
     "area_m2": 120.0,
@@ -13,6 +13,7 @@ DEFAULT_TEXT_DESIGN_PARAMS: Dict[str, Any] = {
     "altura_muro_m": 2.8,
     "espesor_muro_m": 0.12,
     "calidad_terminados": "media",
+    "estilo_arquitectura": "",
     "observaciones": "",
 }
 
@@ -112,6 +113,13 @@ def parse_text_design_response(raw_text: str) -> Optional[Dict[str, Any]]:
     if params["calidad_terminados"] not in ["economica", "media", "alta", "lujo"]:
         params["calidad_terminados"] = "media"
         
+    # El test tests/test_ai_text_design.py ya esperaba este campo (y fallaba con
+    # KeyError desde hacía tiempo). Es útil además para alimentar el prompt del
+    # render de fachada en Fal.ai, así que se implementa en vez de borrar el test.
+    params["estilo_arquitectura"] = str(
+        data.get("estilo_arquitectura") or data.get("estilo") or ""
+    ).strip()
+
     params["observaciones"] = str(data.get("observaciones") or data.get("notas") or "").strip()
 
     return params
@@ -140,6 +148,7 @@ El JSON de salida debe tener obligatoriamente esta estructura:
   "altura_muro_m": float,
   "espesor_muro_m": float,
   "calidad_terminados": "economica" | "media" | "alta" | "lujo",
+  "estilo_arquitectura": string,
   "observaciones": string
 }}
 
@@ -151,13 +160,23 @@ Reglas adicionales:
 - altura_muro_m normalmente debe estar entre 2.6 y 3.2.
 - espesor_muro_m normalmente debe estar entre 0.10 y 0.15.
 - Usa observaciones para explicar supuestos importantes en una frase corta.
+
+Responde SOLO un JSON válido, sin texto antes ni después y sin bloques de código.
 """
 
 
-@st.cache_data(show_spinner=False, hash_funcs={object: lambda _: "modelo_gemini"})
-def analyze_text_design_with_gemini(model: Any, descripcion: str) -> Tuple[Optional[Dict[str, Any]], str]:
-    """Llama a Gemini y devuelve parámetros normalizados junto con la respuesta cruda."""
+@st.cache_data(show_spinner=False, ttl=3600, hash_funcs={object: lambda _: "modelo_gemini"})
+def analyze_text_design_with_gemini(_model: Any, descripcion: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    """
+    Llama a Gemini y devuelve parámetros normalizados junto con la respuesta cruda.
+
+    La llamada de red va envuelta en try/except: antes, un fallo de red o una
+    cuota agotada mostraba el traceback crudo de Streamlit al cliente.
+    """
     prompt = build_text_design_prompt(descripcion)
-    resp = model.generate_content(prompt)
+    try:
+        resp = _model.generate_content(prompt)
+    except Exception as exc:                       # red, cuota, API caída
+        return None, f"[error] No se pudo consultar Gemini: {exc}"
     raw = getattr(resp, "text", "") or ""
     return parse_text_design_response(raw), raw

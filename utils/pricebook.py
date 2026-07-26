@@ -6,7 +6,6 @@ from typing import Dict, Tuple
 
 from .storage import read_json, write_json_atomic
 
-
 DEFAULT_PRICEBOOK: Dict[str, float] = {
     "Panel_Muro": 925.00,
     "Panel_Techo": 1125.00,
@@ -21,7 +20,7 @@ DEFAULT_PRICEBOOK: Dict[str, float] = {
     "Cemento_Saco": 450.00,
     "Arena_m3": 1200.00,
     "Piedra_m3": 1100.00,
-    "Ladrillounidad": 28.00,
+    "Ladrillo_unidad": 28.00,
     "Ceramica_m2": 450.00,
     "Porcelanato_m2": 850.00,
     "Pintura_galon": 1200.00,

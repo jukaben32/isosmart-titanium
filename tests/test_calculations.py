@@ -4,12 +4,10 @@ Pruebas unitarias para IsoSmart Titanium
 """
 
 import sys
+
 sys.path.append('.')
 
-from utils.calculations import (
-    CalculadoraEstructural,
-    CalculadoraMateriales
-)
+from utils.calculations import CalculadoraEstructural, CalculadoraMateriales
 
 
 def test_carga_muerta():

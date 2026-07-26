@@ -1,21 +1,28 @@
 # Módulo para generación de medios con IA (Imagen y Video)
 
-import requests
 import time
-import streamlit as st
-from typing import Optional, Dict, Any
+from typing import Optional
 
-@st.cache_data(show_spinner=False)
-def generate_facade_image_fal(prompt: str, api_key: str) -> Optional[str]:
+import requests
+import streamlit as st
+
+
+# NOTA DE SEGURIDAD (auditoría)
+# `st.cache_data` es una caché GLOBAL del proceso, compartida entre sesiones y
+# usuarios. Con `api_key` en la firma, la clave entraba en el hash de la caché
+# y un usuario podía recibir el resultado generado con la clave de otro.
+# El prefijo "_" excluye el argumento del hash (convención de Streamlit).
+@st.cache_data(show_spinner=False, ttl=3600)
+def generate_facade_image_fal(prompt: str, _api_key: str) -> Optional[str]:
     """
     Llama a la API de Fal.ai (modelo Flux) para generar un render fotorrealista.
     """
-    if not api_key:
+    if not _api_key:
         return None
         
     url = "https://queue.fal.run/fal-ai/flux/schnell"
     headers = {
-        "Authorization": f"Key {api_key}",
+        "Authorization": f"Key {_api_key}",
         "Content-Type": "application/json"
     }
     
@@ -43,18 +50,18 @@ def generate_facade_image_fal(prompt: str, api_key: str) -> Optional[str]:
         
     return None
 
-@st.cache_data(show_spinner=False)
-def generate_video_luma(image_url: str, prompt: str, api_key: str) -> Optional[str]:
+@st.cache_data(show_spinner=False, ttl=3600)
+def generate_video_luma(image_url: str, prompt: str, _api_key: str) -> Optional[str]:
     """
     Llama a la API de Luma Dream Machine para generar un video cinematográfico 
     a partir de una imagen.
     """
-    if not api_key or not image_url:
+    if not _api_key or not image_url:
         return None
         
     url = "https://api.lumalabs.ai/dream-machine/v1/generations"
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {_api_key}",
         "Content-Type": "application/json"
     }
     

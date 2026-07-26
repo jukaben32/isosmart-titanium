@@ -4,13 +4,16 @@ Módulo de Análisis de Ahorro Energético para IsoSmart Titanium
 Cálculos de carga térmica, consumo de aire acondicionado y beneficios de aislamiento
 """
 
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+from typing import Dict
 
-from utils.financiera import AnalisisFinancieroRD
+import numpy as np
+import pandas as pd
 
+# Antes: `from utils.financiera import AnalisisFinancieroRD` -> acoplaba el
+# módulo energético al financiero. Ahora ambos dependen de utils/tarifa.py.
+from utils.tarifa import KG_CO2_POR_KWH as _KG_CO2_GRID  # noqa: F401
+from utils.tarifa import calcular_costo_energia_rd
 
 
 @dataclass
@@ -139,12 +142,8 @@ class AnalisisEnergetico:
         dias_mes = 30
         consumo_mes_kwh = consumo_diario_kwh * dias_mes
 
-        # Distribución pico/fuera de pico
-        horas_pico = cls.HORAS_PICO_DIA
-        horas_fuera_pico = cls.HORAS_FUERA_PICO_DIA
-
         # Simplificado: asume estructura tarifaria dominicana escalonada BTS2
-        consumo_mes_rd = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_mes_kwh)
+        consumo_mes_rd = calcular_costo_energia_rd(consumo_mes_kwh)
 
         return {
             'consumo_hora_kwh': round(consumo_hora_kwh, 3),
@@ -307,7 +306,7 @@ class AnalisisEnergetico:
             'autoconsumo_pct': min(100, (num_paneles * energia_panel_mes_kwh / consumo_mensual) * 100),
             'costo_estimado_rd': round(costo_total, 2),
             'costo_por_panel_rd': round(costo_total / num_paneles, 2),
-            'ahorro_solar_mensual_rd': round(AnalisisFinancieroRD.calcular_costo_energia_rd(min(consumo_mensual, num_paneles * energia_panel_mes_kwh)), 2)
+            'ahorro_solar_mensual_rd': round(calcular_costo_energia_rd(min(consumo_mensual, num_paneles * energia_panel_mes_kwh)), 2)
         }
 
     @classmethod

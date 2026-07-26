@@ -4,17 +4,18 @@ Módulo de Análisis Financiero para IsoSmart Titanium
 Cálculos de ROI, VAN, TIR, análisis de sensibilidad y proyecciones
 """
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+
 try:
     import numpy_financial as npf
 except ImportError:
     npf = None  # Fallback si no está instalado
-from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+from typing import Dict, List, Optional
 
-from utils.calculador import BudgetCalculator
 from utils.pricebook import DEFAULT_PRICEBOOK
+from utils.tarifa import TARIFA_BLOQUES, calcular_costo_energia_rd
 
 
 @dataclass
@@ -22,7 +23,7 @@ class ResultadoFinanciero:
     """Resultado de análisis financiero"""
     roi_nominal: float          # % ROI total
     roi_anualizado: float      # % ROI anual compuesto
-    payback_anios: float       # Período de recuperación
+    payback_anios: Optional[float]  # Años hasta recuperar el sobrecosto; None si nunca
     van: float                  # Valor Actual Neto
     tir: float                  # Tasa Interna de Retorno
     tco: float                  # Costo Total de Propiedad
@@ -50,40 +51,53 @@ class AnalisisFinanciero:
     @classmethod
     def calcular_ahorro_energia_mensual(cls, area_m2: float, sistema: str = "isotex") -> Dict[str, float]:
         """
-        Calcula el ahorro energético mensual comparado con construcción tradicional.
-        Usa la tarifa BTS2 real de las EDES dominicanas (delegado a AnalisisFinancieroRD).
+        Ahorro energético mensual frente a construcción tradicional.
 
-        Args:
-            area_m2: Área de construcción en m²
-            sistema: 'isotex', 'icf' o 'tradicional'
+        MODELO UNIFICADO (corrección de auditoría)
+        ------------------------------------------
+        El repositorio tenía TRES modelos energéticos incompatibles que, para la
+        misma casa de 120 m², devolvían RD$ 36,936 / RD$ 5,522 / RD$ 1,022 de
+        ahorro mensual: un factor de 36x entre el primero y el tercero.
 
-        Returns:
-            Diccionario con consumo y ahorro mensual
+        El que alimentaba el ROI era el peor: 45 kWh/m²/mes de consumo de aire
+        acondicionado, es decir 5,400 kWh/mes y una factura de RD$ 43,779 para
+        una vivienda de 120 m². El consumo real de una vivienda dominicana de
+        ese tamaño ronda los 300–800 kWh/mes.
+
+        Ahora esta función delega en `AnalisisEnergetico`, que es el único de los
+        tres con una base física trazable (carga térmica por volumen -> BTU/h ->
+        consumo vía SEER -> tarifa por bloques).
         """
-        # Consumo tradicional: 45 kWh/m²/mes
-        consumo_trad_mes = area_m2 * cls.CONSUMO_AC_TRADICIONAL_KWH_M2
+        from utils.energia import AnalisisEnergetico  # import diferido: evita ciclo
 
-        if sistema.lower() == "tradicional":
-            costo = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_trad_mes)
+        carga_trad = AnalisisEnergetico.calcular_carga_termica(area_m2, sistema="tradicional")
+        consumo_trad = AnalisisEnergetico.calcular_consumo_mensual(
+            carga_trad["carga_termica_btu_h"], seer=16.0
+        )
+
+        if str(sistema).strip().lower() == "tradicional":
             return {
-                "consumo_kwh_mes": consumo_trad_mes,
-                "costo_mes_rd": costo,
+                "consumo_kwh_mes": round(consumo_trad["consumo_mensual_kwh"], 2),
+                "costo_mes_rd": round(consumo_trad["consumo_mensual_rd"], 2),
                 "ahorro_kwh_mes": 0.0,
                 "ahorro_rd_mes": 0.0,
             }
 
-        # Isotex/ICF reduce consumo ~45%
-        factor_reduccion = 0.55
-        consumo_eps_mes = consumo_trad_mes * factor_reduccion
-
-        costo_trad = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_trad_mes)
-        costo_eps  = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_eps_mes)
+        sistema_eps = "icf" if str(sistema).strip().lower() == "icf" else "isotex"
+        carga_eps = AnalisisEnergetico.calcular_carga_termica(area_m2, sistema=sistema_eps)
+        consumo_eps = AnalisisEnergetico.calcular_consumo_mensual(
+            carga_eps["carga_termica_btu_h"], seer=16.0
+        )
 
         return {
-            "consumo_kwh_mes": round(consumo_eps_mes, 2),
-            "costo_mes_rd":    round(costo_eps, 2),
-            "ahorro_kwh_mes":  round(consumo_trad_mes - consumo_eps_mes, 2),
-            "ahorro_rd_mes":   round(costo_trad - costo_eps, 2),
+            "consumo_kwh_mes": round(consumo_eps["consumo_mensual_kwh"], 2),
+            "costo_mes_rd": round(consumo_eps["consumo_mensual_rd"], 2),
+            "ahorro_kwh_mes": round(
+                consumo_trad["consumo_mensual_kwh"] - consumo_eps["consumo_mensual_kwh"], 2
+            ),
+            "ahorro_rd_mes": round(
+                consumo_trad["consumo_mensual_rd"] - consumo_eps["consumo_mensual_rd"], 2
+            ),
         }
 
     @classmethod
@@ -91,97 +105,99 @@ class AnalisisFinanciero:
                     costo_tradicional: float, horizonte_anios: int = 10,
                     tasa_descuento: float = None) -> ResultadoFinanciero:
         """
-        Calcula ROI, VAN, TIR y payback para un proyecto ISOTEX vs Tradicional
+        ROI, VAN, TIR, payback y TCO de EPS/ICF frente a construcción tradicional.
 
-        Args:
-            area_m2: Área de construcción en m²
-            costo_total_isotex: Costo total de construcción ISOTEX (RD$)
-            costo_tradicional: Costo total construcción tradicional (RD$)
-            horizonte_anios: Período de análisis en años
-            tasa_descuento: Tasa de descuento para VAN (default 12%)
+        CORRECCIÓN DE SIGNO (auditoría)
+        -------------------------------
+        La versión anterior hacía:
 
-        Returns:
-            ResultadoFinanciero con todas las métricas
+            inversion_inicial = costo_tradicional - costo_total_isotex
+            if inversion_inicial < 0:
+                inversion_inicial = costo_total_isotex - costo_tradicional
+            flujos.append(-inversion_inicial)
+
+        Ambas ramas producían un flujo NEGATIVO en el año 0. Es decir: cuando
+        EPS resultaba más barato —el caso que la app siempre presenta— el modelo
+        trataba el ahorro inicial como si fuera un desembolso. VAN, TIR y payback
+        se calculaban sobre una inversión inexistente.
+
+        Ahora el año 0 lleva su signo real:
+          - EPS más caro   -> diferencial negativo (inversión real a recuperar)
+          - EPS más barato -> diferencial positivo (ahorro disponible desde el día 0)
         """
         if tasa_descuento is None:
             tasa_descuento = cls.TASA_DESCUENTO_DEFAULT
 
-        # Inversión inicial (diferencia)
-        inversion_inicial = costo_tradicional - costo_total_isotex
-        if inversion_inicial < 0:
-            # ISOTEX es más caro - ajustar análisis
-            inversion_inicial = costo_total_isotex - costo_tradicional
-            es_mas_caro = True
-        else:
-            es_mas_caro = False
+        # >0 si EPS ahorra desde el inicio; <0 si EPS cuesta más.
+        diferencial_inicial = float(costo_tradicional) - float(costo_total_isotex)
+        sobrecosto_inicial = max(0.0, -diferencial_inicial)   # lo que hay que recuperar
 
-        # Flujos anuales (ahorro + mantenimiento)
-        flujos = []
         mantenimiento_isotex = costo_total_isotex * cls.MANTENIMIENTO_PORCENTAJE
         mantenimiento_tradicional = costo_tradicional * cls.MANTENIMIENTO_PORCENTAJE
+        ahorro_mantenimiento = mantenimiento_tradicional - mantenimiento_isotex
         ahorro_energia_anual = (
             cls.calcular_ahorro_energia_mensual(area_m2, "isotex")["ahorro_rd_mes"] * 12
         )
-        ahorro_mantenimiento = (mantenimiento_tradicional - mantenimiento_isotex)
+        flujo_anual = ahorro_energia_anual + ahorro_mantenimiento
 
-        # Año 0: inversión inicial (negativo)
-        flujos.append(-inversion_inicial)
+        # Año 0 con su signo real + flujos anuales constantes.
+        # (Antes: `flujo_anual * anio if anio == 1 else flujo_anual`, un `*1`
+        #  residual que solo hacía ilegible la intención.)
+        flujos = [diferencial_inicial] + [flujo_anual] * int(horizonte_anios)
+        flujos_np = np.array(flujos, dtype=float)
 
-        # Años 1 a horizonte
-        for anio in range(1, horizonte_anios + 1):
-            flujo_anual = ahorro_energia_anual + ahorro_mantenimiento
-            # Acumular ahorros
-            flujos.append(flujo_anual * anio if anio == 1 else flujo_anual)
-
-        # Crear array de numpy para cálculos
-        flujos_np = np.array(flujos)
-
-        # Calcular VAN (usando numpy-financial si está disponible)
+        # VAN
         if npf is not None:
-            van = npf.npv(tasa_descuento, flujos_np)
+            van = float(npf.npv(tasa_descuento, flujos_np))
         else:
-            # Cálculo manual del VAN como fallback
-            van = sum(f / (1 + tasa_descuento)**i for i, f in enumerate(flujos_np))
+            van = float(sum(f / (1 + tasa_descuento) ** i for i, f in enumerate(flujos_np)))
 
-        # Calcular TIR (usando numpy-financial si está disponible)
-        try:
-            if npf is not None:
-                tir = npf.irr(flujos_np) * 100  # En porcentaje
-            else:
+        # TIR: solo tiene sentido si hay cambio de signo en la serie.
+        tir = 0.0
+        hay_cambio_signo = min(flujos) < 0 < max(flujos)
+        if npf is not None and hay_cambio_signo:
+            try:
+                valor = npf.irr(flujos_np)
+                tir = float(valor * 100) if valor is not None and np.isfinite(valor) else 0.0
+            except Exception:
                 tir = 0.0
-        except Exception:
-            tir = 0.0
 
-        # Payback simple (sin descontar)
-        flujo_acumulado = 0
-        payback = horizonte_anios
-        for i, flujo in enumerate(flujos[1:], 1):
-            flujo_acumulado += flujo
-            if flujo_acumulado >= inversion_inicial:
-                payback = i
-                break
-
-        # ROI nominal
-        total_ahorros = sum(flujos[1:])
-        roi_nominal = ((total_ahorros - abs(flujos[0])) / abs(flujos[0])) * 100 if flujos[0] != 0 else 0
-
-        # ROI anualizado (CAGR)
-        if flujos[0] < 0 and payback < horizonte_anios:
-            valor_final = abs(flujos[0]) * (1 + roi_nominal/100)
-            if valor_final > 0 and abs(flujos[0]) > 0:
-                roi_anualizado = ((valor_final / abs(flujos[0])) ** (1/horizonte_anios) - 1) * 100
-            else:
-                roi_anualizado = 0
+        # Payback: 0 si no hay sobrecosto que recuperar; None si nunca se recupera.
+        if sobrecosto_inicial <= 0:
+            payback = 0.0
         else:
-            roi_anualizado = 0
+            payback = None
+            acumulado = 0.0
+            for i, flujo in enumerate(flujos[1:], start=1):
+                acumulado += flujo
+                if acumulado >= sobrecosto_inicial:
+                    payback = float(i)
+                    break
 
-        # Costo Total de Propiedad
-        tco_isotex = costo_total_isotex + (mantenimiento_isotex * horizonte_anios)
-        tco_tradicional = costo_tradicional + (mantenimiento_tradicional * horizonte_anios)
-        tco = tco_isotex
+        # ROI sobre el capital realmente desplegado (el costo de construir en EPS).
+        beneficio_total = diferencial_inicial + sum(flujos[1:])
+        base = float(costo_total_isotex) or 1.0
+        roi_nominal = (beneficio_total / base) * 100.0
 
-        # Ahorro acumulado
-        ahorro_acumulado = tco_tradicional - tco_isotex
+        # CAGR equivalente del ROI a lo largo del horizonte.
+        crecimiento = 1.0 + (roi_nominal / 100.0)
+        roi_anualizado = (
+            (crecimiento ** (1.0 / horizonte_anios) - 1.0) * 100.0
+            if crecimiento > 0 and horizonte_anios > 0
+            else 0.0
+        )
+
+        # TCO ahora incluye energía, como especifica SPEC.md (antes se omitía).
+        energia_isotex_anual = (
+            cls.calcular_ahorro_energia_mensual(area_m2, "isotex")["costo_mes_rd"] * 12
+        )
+        energia_trad_anual = (
+            cls.calcular_ahorro_energia_mensual(area_m2, "tradicional")["costo_mes_rd"] * 12
+        )
+        tco_isotex = (costo_total_isotex
+                      + (mantenimiento_isotex + energia_isotex_anual) * horizonte_anios)
+        tco_tradicional = (costo_tradicional
+                           + (mantenimiento_tradicional + energia_trad_anual) * horizonte_anios)
 
         return ResultadoFinanciero(
             roi_nominal=roi_nominal,
@@ -189,8 +205,8 @@ class AnalisisFinanciero:
             payback_anios=payback,
             van=van,
             tir=tir,
-            tco=tco,
-            ahorro_acumulado=ahorro_acumulado,
+            tco=tco_isotex,
+            ahorro_acumulado=tco_tradicional - tco_isotex,
             flujo_caja=flujos
         )
 
@@ -491,41 +507,15 @@ class AnalisisFinancieroRD:
     escalonamiento regulado de la tarifa BTS2 (EDES dominicanas).
     """
 
-    # Estructura marginal indexada al mercado dominicano actual (2026)
-    TARIFA_BTS2 = {
-        "fijo":    145.00,   # Cargo fijo mensual (RD$)
-        "bloque_1":  7.20,   # 0–100 kWh
-        "bloque_2":  9.80,   # 101–200 kWh
-        "bloque_3": 13.50,   # 201–300 kWh
-        "bloque_4": 15.20    # >300 kWh
-    }
-
+    # La tabla y el algoritmo de tarifa viven ahora en utils/tarifa.py (fuente
+    # única compartida con utils/energia.py). Se conservan estos alias para no
+    # romper los llamadores existentes.
+    TARIFA_BTS2 = TARIFA_BLOQUES
 
     @classmethod
     def calcular_costo_energia_rd(cls, kwh_mensuales: float) -> float:
-        """Aplica la estructura marginal indexada al mercado dominicano actual."""
-        costo = cls.TARIFA_BTS2["fijo"]
-        if kwh_mensuales <= 100:
-            costo += kwh_mensuales * cls.TARIFA_BTS2["bloque_1"]
-        elif kwh_mensuales <= 200:
-            costo += (
-                (100 * cls.TARIFA_BTS2["bloque_1"])
-                + ((kwh_mensuales - 100) * cls.TARIFA_BTS2["bloque_2"])
-            )
-        elif kwh_mensuales <= 300:
-            costo += (
-                (100 * cls.TARIFA_BTS2["bloque_1"])
-                + (100 * cls.TARIFA_BTS2["bloque_2"])
-                + ((kwh_mensuales - 200) * cls.TARIFA_BTS2["bloque_3"])
-            )
-        else:
-            costo += (
-                (100 * cls.TARIFA_BTS2["bloque_1"])
-                + (100 * cls.TARIFA_BTS2["bloque_2"])
-                + (100 * cls.TARIFA_BTS2["bloque_3"])
-                + ((kwh_mensuales - 300) * cls.TARIFA_BTS2["bloque_4"])
-            )
-        return costo
+        """Costo mensual en RD$ según la estructura marginal por bloques."""
+        return calcular_costo_energia_rd(kwh_mensuales)
 
     @classmethod
     def simular_ahorro_termico(cls, area_m2: float, horas_ac_dia: float = 8.0) -> dict:

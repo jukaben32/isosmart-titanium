@@ -4,19 +4,21 @@ IsoSmart Titanium - Dashboard Financiero
 Análisis avanzado de ROI, VAN, TIR, sensibilidad y proyecciones
 """
 
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-import sys
 import os
+import sys
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+from plotly.subplots import make_subplots
 
 # Agregar el directorio raíz al path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.financiera import AnalisisFinanciero, calcular_costo_unitario_por_sistema
 from app import BudgetCalculator
+from utils.financiera import AnalisisFinanciero, calcular_costo_unitario_por_sistema
+from utils.pricebook import Pricebook  # noqa: E402  (requiere el sys.path de arriba)
 
 # Configuración de página
 st.set_page_config(
@@ -296,7 +298,7 @@ def main():
 
         sistema = st.selectbox("🏗️ Sistema", ["Paneles Isotex", "ICF Proform"])
 
-        calidad = st.selectbox("🎨 Calidad", ["económica", "media", "alta", "lujo"])
+        calidad = st.selectbox("🎨 Calidad", ["economica", "media", "alta", "lujo"])
 
         st.divider()
 
@@ -317,11 +319,12 @@ def main():
         """, unsafe_allow_html=True)
 
     # Calcular datos base — se obtienen precios desde session_state o defaults
-    precios_dash = st.session_state.get("precios_sincronizados") or {
-        "Panel_Muro": 925.0, "Panel_Techo": 1125.0, "H_3000_PSI": 7350.0,
-        "H_3500_PSI": 7950.0, "Viga_H_kg": 105.0, "Acero_Varilla": 85.0,
-        "Ceramica_m2": 450.0, "Pintura_galon": 1200.0,
-    }
+    # FUENTE ÚNICA de precios: antes esta página tenía su propio diccionario de
+    # 8 precios hardcodeados, la cuarta copia del pricebook en el repositorio.
+    precios_dash = (
+        st.session_state.get("precios_sincronizados")
+        or Pricebook(os.path.join("data", "pricebook.json")).load()
+    )
     obra_gris, obra_terminada = BudgetCalculator.calcular_presupuesto_completo(
         m2=area,
         sistema=sistema,

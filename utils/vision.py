@@ -24,7 +24,6 @@ from typing import Any, Dict, Optional, Tuple
 
 from PIL import Image
 
-
 # ============================================================================
 # MODELO DE DATOS
 # ============================================================================
@@ -79,12 +78,12 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
 import streamlit as st
 
 
-@st.cache_data(show_spinner=False, hash_funcs={
+@st.cache_data(show_spinner=False, ttl=3600, hash_funcs={
     object: lambda _: "modelo_gemini",
     Image.Image: lambda img: img.tobytes(),
 })
 def analyze_plan_image_with_gemini(
-    model: Any,
+    _model: Any,
     image: Image.Image,
 ) -> Tuple[Optional[Dict[str, Any]], str]:
     """
@@ -127,7 +126,10 @@ Reglas estrictas:
 - Si hay cota de escala o dimensiones, úsalas; si no, marca null.
 - Responde SOLO con el JSON, sin texto adicional antes ni después.
 """
-    resp = model.generate_content([prompt, image])
-    raw  = getattr(resp, "text", "") or ""
+    try:
+        resp = _model.generate_content([prompt, image])
+    except Exception as exc:                       # red, cuota, API caída
+        return None, f"[error] No se pudo consultar Gemini: {exc}"
+    raw = getattr(resp, "text", "") or ""
     data = _extract_json(raw)
     return data, raw

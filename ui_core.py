@@ -1,81 +1,80 @@
 # -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import google.generativeai as genai
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime, date
-from fpdf import FPDF
 import base64
-import json
-import os
-from io import BytesIO
-from typing import Dict, List, Optional, Tuple
 import hashlib
-import time
+import os
+from datetime import date, datetime
+from typing import Dict, List, Optional
 
-from utils.pricebook import Pricebook
-from utils.storage import list_dict_values, read_json, write_json_atomic
-from utils.gemini_plan import analyze_plan_image_with_gemini
-from utils.plan_geometry import (
-    polygon_area_perimeter,
-    polygon_from_canvas,
-    scale_from_canvas_line,
-    extract_line_segments,
-    extract_points,
-)
-from utils.pdf_utils import pdf_first_page_to_image
-from utils.catalog import Catalog
-from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
+import google.generativeai as genai
+import pandas as pd
+import streamlit as st
+
+from utils.repositorio import RepositorioSQLite, obtener_repositorio
+from fpdf import FPDF
+
 from utils.ai_media import generate_facade_image_fal, generate_video_luma
-from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
-from utils.calculador import BudgetCalculator
-from utils.energia import AnalisisEnergetico
+from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
+from utils.storage import list_dict_values, read_json, write_json_atomic
+
+# ---------------------------------------------------------------------------
+# Componente opcional de lienzo interactivo.
+#
+# FUENTE ÚNICA: este try/except vivía solo en app.py, pero ui_calculadora.py y
+# ui_vision.py usaban `st_canvas` sin importarlo -> NameError en cuanto el
+# usuario subía un plano. Ahora se define aquí y todos importan desde ui_core.
+# ---------------------------------------------------------------------------
+try:
+    from streamlit_drawable_canvas import st_canvas
+except Exception:  # pragma: no cover - depende del entorno de despliegue
+    st_canvas = None
+
 
 class ProjectManager:
-    """Gestor de proyectos con persistencia local"""
+    """
+    Gestor de proyectos y leads.
+
+    Ahora delega en `utils.repositorio` (SQLite por defecto, Supabase si hay
+    credenciales) en vez de escribir JSON al disco local. Motivo: en Streamlit
+    Cloud el sistema de archivos es efímero y cada reinicio borraba los leads
+    capturados. Se mantiene la misma API pública para no tocar los llamadores.
+    """
 
     def __init__(self, base_dir: str = "data"):
         self.base_dir = base_dir
-        self.storage_file = os.path.join(self.base_dir, "projects_db.json")
-        self.leads_file = os.path.join(self.base_dir, "leads_db.json")
-        self.projects = self._load_projects()
-        self.leads = self._load_leads()
+        self.repo = obtener_repositorio()
+        self._sqlite = self.repo if isinstance(self.repo, RepositorioSQLite) else RepositorioSQLite()
 
-    def _load_projects(self) -> Dict:
-        return read_json(self.storage_file, default={})
-
-    def _load_leads(self) -> List:
-        return read_json(self.leads_file, default=[])
+    # -- leads -----------------------------------------------------------
+    @property
+    def leads(self) -> List[Dict]:
+        try:
+            return self.repo.listar()
+        except Exception:
+            return []
 
     def save_lead(self, lead_data: Dict):
-        """Guarda un lead interesado"""
-        lead_data['fecha'] = datetime.now().isoformat()
-        lead_data['id'] = hashlib.md5(
-            f"{lead_data['nombre']}{lead_data['fecha']}".encode()
-        ).hexdigest()[:8]
-        self.leads.append(lead_data)
-        write_json_atomic(self.leads_file, self.leads)
+        """Guarda un lead interesado."""
+        lead_data = dict(lead_data)
+        lead_data.setdefault("fecha", datetime.now().isoformat())
+        return self.repo.guardar(lead_data)
+
+    # -- proyectos -------------------------------------------------------
+    @property
+    def projects(self) -> Dict:
+        return {p["id"]: p for p in self._sqlite.listar_proyectos()}
 
     def save_project(self, project_id: str, data: Dict):
-        self.projects[project_id] = {
-            **data,
-            'updated_at': datetime.now().isoformat()
-        }
-        write_json_atomic(self.storage_file, self.projects)
+        self._sqlite.guardar_proyecto(project_id, data)
 
     def get_project(self, project_id: str) -> Optional[Dict]:
-        return self.projects.get(project_id)
+        return self._sqlite.obtener_proyecto(project_id)
 
     def list_projects(self) -> List[Dict]:
-        return list_dict_values(self.projects)
+        return self._sqlite.listar_proyectos()
 
     def delete_project(self, project_id: str):
-        if project_id in self.projects:
-            del self.projects[project_id]
-            write_json_atomic(self.storage_file, self.projects)
+        self._sqlite.eliminar_proyecto(project_id)
 
 
 # ============================================================================
@@ -83,82 +82,9 @@ class ProjectManager:
 # ============================================================================
 
 
-class PDFGenerator:
-    """Generador de documentos PDF profesionales"""
-
-    def __init__(self):
-        self.pdf = FPDF()
-        self.pdf.set_auto_page_break(auto=True, margin=15)
-
-    def generar_propuesta(self, cliente: str, datos_proyecto: Dict,
-                         presupuesto_df: pd.DataFrame, total: float) -> bytes:
-        self.pdf.add_page()
-
-        # Encabezado
-        self.pdf.set_fill_color(30, 60, 114)
-        self.pdf.rect(0, 0, 210, 40, 'F')
-
-        self.pdf.set_font('Arial', 'B', 20)
-        self.pdf.set_text_color(255, 255, 255)
-        self.pdf.cell(190, 15, 'IsoSmart Titanium', ln=True, align='C')
-
-        self.pdf.set_font('Arial', '', 12)
-        self.pdf.cell(190, 10, 'Propuesta Técnica Comercial', ln=True, align='C')
-
-        self.pdf.ln(20)
-
-        # Información del cliente
-        self.pdf.set_font('Arial', 'B', 12)
-        self.pdf.set_text_color(0, 0, 0)
-        self.pdf.cell(95, 10, 'INFORMACIÓN DEL CLIENTE', ln=False)
-        self.pdf.cell(95, 10, 'DETALLES DEL PROYECTO', ln=True)
-
-        self.pdf.set_font('Arial', '', 10)
-        self.pdf.cell(95, 8, f'Cliente: {cliente}', ln=False)
-        self.pdf.cell(95, 8, f'Fecha: {date.today().strftime("%d/%m/%Y")}', ln=True)
-
-        self.pdf.cell(95, 8, f'Área: {datos_proyecto.get("area", 0):.2f} m²', ln=False)
-        self.pdf.cell(95, 8, f'Sistema: {datos_proyecto.get("sistema", "N/A")}', ln=True)
-
-        self.pdf.ln(10)
-
-        # Tabla de presupuesto
-        self.pdf.set_font('Arial', 'B', 10)
-        self.pdf.set_fill_color(240, 240, 240)
-
-        col_widths = [50, 70, 25, 45]
-        headers = ['Material', 'Descripción', 'Cant.', 'Subtotal']
-
-        for i, header in enumerate(headers):
-            self.pdf.cell(col_widths[i], 10, header, border=1, fill=True, align='C')
-        self.pdf.ln()
-
-        self.pdf.set_font('Arial', '', 9)
-
-        for _, row in presupuesto_df.iterrows():
-            self.pdf.cell(col_widths[0], 8, str(row['Material'])[:30], border=1)
-            self.pdf.cell(col_widths[1], 8, str(row['Detalle'])[:45], border=1)
-            self.pdf.cell(col_widths[2], 8, f"{row['Cantidad']} {row['Unidad']}", border=1, align='C')
-            self.pdf.cell(col_widths[3], 8, f"RD$ {row['Subtotal']:,.2f}", border=1, align='R')
-            self.pdf.ln()
-
-        # Total
-        self.pdf.ln(5)
-        self.pdf.set_font('Arial', 'B', 12)
-        self.pdf.set_fill_color(200, 220, 255)
-        self.pdf.cell(145, 10, '', border=0)
-        self.pdf.cell(45, 10, 'TOTAL:', border=1, fill=True, align='R')
-        self.pdf.cell(20, 10, f"RD$ {total:,.2f}", border=1, fill=True, align='R', ln=True)
-
-        # Notas
-        self.pdf.ln(10)
-        self.pdf.set_font('Arial', 'I', 8)
-        self.pdf.set_text_color(100, 100, 100)
-        self.pdf.multi_cell(190, 5,
-            'Nota: Esta cotización es estimada y puede variar según especificaciones finales. '
-            'Precios válidos por 15 días. No incluye mano de obra ni transporte.')
-
-        return self.pdf.output(dest='S').encode('latin-1')
+# PDFGenerator y _pdf_safe viven ahora en utils/pdf_propuesta.py (sin Streamlit).
+# Se reexportan aquí para no romper los imports existentes.
+from utils.pdf_propuesta import PDFGenerator, _pdf_safe  # noqa: F401,E402
 
 
 def create_download_link(pdf_content: bytes, filename: str, button_text: str = "📥 Descargar PDF") -> str:
@@ -361,17 +287,6 @@ def calc_h_beams_kg(area_m2: float, perimetro_m: float, beam_spacing_m: float, k
 # ============================================================================
 # RENDERIZADO DEL ENTORNO WEB INTERACTIVO
 # ============================================================================
-
-
-def sincronizar_parametros_globales(datos: dict, origen: str):
-    """Sincroniza métricas extraídas (canvas o Gemini) al estado global de la sesión."""
-    if not datos:
-        return
-    st.success(f"🔄 Sincronizando métricas desde: {origen}")
-    if datos.get("area_m2"):
-        st.session_state["calc_area_m2"] = float(datos["area_m2"])
-    if datos.get("perimetro_m"):
-        st.session_state["calc_perimetro_m"] = float(datos["perimetro_m"])
 
 
 def sincronizar_parametros_globales(datos: dict, origen: str):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 def _ensure_parent_dir(path: str) -> None:
@@ -16,7 +16,7 @@ def read_json(path: str, default: Any) -> Any:
     try:
         if not os.path.exists(path):
             return default
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return default

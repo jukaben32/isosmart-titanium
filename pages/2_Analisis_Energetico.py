@@ -4,13 +4,14 @@ IsoSmart Titanium - Módulo de Ahorro Energético
 Análisis de carga térmica, consumo de AC y beneficios del aislamiento
 """
 
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-import sys
 import os
+import sys
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+from plotly.subplots import make_subplots
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -345,12 +346,12 @@ def main():
         st.plotly_chart(fig_consumo, use_container_width=True)
 
     # ===== SECCIÓN 3: Detalle de Carga Térmica =====
-    st.markdown("""
+    st.markdown(f"""
     <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 10px; margin: 1rem 0;">
-        <h3>🌡️ Detalle de Carga Térmica - Sistema {}</h3>
-        <p>Para una construcción de <strong>{} m²</strong> con techo de 2.7m de altura:</p>
+        <h3>🌡️ Detalle de Carga Térmica - Sistema {sistema_analisis.upper()}</h3>
+        <p>Para una construcción de <strong>{area} m²</strong> con techo de 2.7m de altura:</p>
     </div>
-    """.format(sistema_analisis.upper(), area), unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
     col_d1, col_d2, col_d3, col_d4 = st.columns(4)
 
