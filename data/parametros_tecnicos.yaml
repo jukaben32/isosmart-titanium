@@ -174,16 +174,42 @@ mallas:
   # conteo; `Geometria.esquinas` ya admite indicar el total real
   # (ej. 6 para una casa en L simple) en vez del default de 4.
   esquinera_largo_pieza_m: 2.40
-  # [doc] malla unión: 10 cm x 2.40 m, ambos lados. Video #37: "necesarias
-  # cuando la altura del muro supera los 2.44 m, o en cortes donde no existe
-  # la pestaña de autoensamble". Antes: solo se estimaba por la fracción
-  # arbitraria de paneles cortados (union_fraccion_paneles_cortados,
-  # [supuesto]); ahora se añade la condición real de altura como un
-  # segundo motivo documentado, aplicado sobre el largo total de muro.
+  # [doc] malla unión: 10 cm x 2.40 m, ambos lados. VERIFICADO con
+  # NotebookLM del usuario (video #46 "¿Necesita estos refuerzos una CASA
+  # DE PANEL COVINTEC?"): hay exactamente TRES motivos documentados para
+  # necesitar malla unión, no una fracción genérica de "paneles cortados":
+  #   1. Cortes de ajuste (modulación): remates donde se elimina la
+  #      pestaña de autoensamble para calzar la longitud exacta del muro
+  #      (cualquier muro cuya longitud no sea múltiplo de 1.22 m).
+  #   2. Reparación de instalaciones: donde el corte para caja eléctrica o
+  #      tubería rompe la malla estructural del panel, se "parcha" con
+  #      malla unión para restablecer el tejido de acero.
+  #   3. Uniones horizontales: al empalmar paneles para superar la altura
+  #      comercial (2.44 m) -- este motivo YA estaba implementado
+  #      correctamente (union_altura_umbral_m, abajo) con una fórmula
+  #      exacta, no una fracción.
+  #
+  # El motivo 1 (cortes de ajuste) es en principio calculable con
+  # precisión si se conoce la longitud de cada segmento recto de muro
+  # (uno por cada tramo entre esquinas), pero Geometria no rastrea
+  # segmentos individuales todavía, solo el total de metros lineales. El
+  # motivo 2 (reparación de instalaciones) necesitaría un conteo de cajas
+  # eléctricas/tuberías que tampoco se rastrea. NO se implementó una
+  # fórmula nueva para ninguno de los dos sin un ejemplo numérico resuelto
+  # que la verifique (la lección de la malla zigzag: verificar antes de
+  # desplegar). `union_fraccion_paneles_cortados` sigue siendo la
+  # estimación combinada de ambos motivos, [supuesto] sin cambios.
+  #
+  # Dato de validación: el video menciona que "en un proyecto bien
+  # modulado, el sistema genera apenas un 3% de desperdicio de material,
+  # precisamente porque los recortes de los vanos son reutilizables" --
+  # esto corrobora la decisión de diseño de NO aplicar un % de desperdicio
+  # al panel (utils/qto.py: "El panel NO lleva desperdicio porcentual: la
+  # modulación con redondeo hacia arriba ya lo incorpora de forma física").
   union_largo_pieza_m: 2.40
   union_lados: 2
-  union_altura_umbral_m: 2.44              # [doc] video #37
-  union_fraccion_paneles_cortados: 0.25    # [supuesto] % de paneles que requieren corte
+  union_altura_umbral_m: 2.44              # [doc] video #37, motivo 3 (uniones horizontales)
+  union_fraccion_paneles_cortados: 0.25    # [supuesto] combina motivos 1 y 2 (ver nota arriba)
   # Malla electrosoldada 10x10 en cimentación
   electrosoldada_traslape: 1.10           # [supuesto] 10% de traslape
 
@@ -245,6 +271,14 @@ geometria_defecto:
 # ---------------------------------------------------------------------------
 # El panel NO lleva desperdicio porcentual: la modulación a 1.22 m con redondeo
 # hacia arriba ya lo incorpora de forma física (y más exacta que un 5% plano).
+#
+# CORROBORADO con NotebookLM del usuario (video #46): "en un proyecto bien
+# modulado, el sistema genera apenas un 3% de desperdicio de material,
+# precisamente porque los recortes de los vanos son reutilizables" (los
+# recortes de ventana sirven para completar dinteles sobre puertas, etc).
+# Confirma que el enfoque de redondeo (sin % plano) es el correcto -- un
+# 3% real es mucho más bajo que cualquier desperdicio porcentual típico de
+# obra (5-10%), justamente porque el corte no se descarta, se reutiliza.
 desperdicios:
   concreto: 0.08
   mortero: 0.10

@@ -729,3 +729,37 @@ def test_esquinas_concavas_y_convexas_reciben_el_mismo_tratamiento():
     interna_rect = next(p for p in rectangular.partidas() if p.partida == "Malla esquinera interna")
     interna_l = next(p for p in forma_l.partidas() if p.partida == "Malla esquinera interna")
     assert interna_l.cantidad_neta > interna_rect.cantidad_neta
+
+
+def test_malla_union_documenta_las_tres_causas_reales():
+    """
+    VERIFICADO con NotebookLM del usuario (video #46): hay exactamente TRES
+    motivos documentados para necesitar malla unión -- cortes de ajuste por
+    modulación, reparación de instalaciones, y uniones horizontales por
+    altura. Antes solo se mencionaban dos genéricamente ("cortes de
+    panel"). El tercer motivo (uniones horizontales) ya tenía fórmula
+    exacta; los otros dos siguen combinados en una fracción [supuesto]
+    porque no hay ejemplo numérico resuelto que la verifique todavía --
+    no se debe inventar una fórmula sin esa verificación (lección de la
+    malla zigzag).
+    """
+    motor = MotorQTO(geo(altura_muro_m=2.80))
+    union = next(p for p in motor.partidas() if "unión" in p.partida.lower())
+    assert "modulación" in union.detalle
+    assert "instalaciones" in union.detalle
+
+
+def test_desperdicio_de_panel_corroborado_por_dato_real():
+    """
+    El video #46 reporta ~3% de desperdicio real en proyectos bien
+    modulados, mucho menor que un desperdicio porcentual típico de obra
+    (5-10%) -- corrobora la decisión de no aplicar % de desperdicio al
+    panel y usar redondeo por modulación en su lugar.
+    """
+    from utils.parametros import cargar_parametros
+
+    p = cargar_parametros()
+    assert "Panel_Muro" not in {
+        k for k in ("concreto", "mortero", "acero", "mallas", "acabados")
+    }  # el panel nunca tuvo su propia clave de desperdicio porcentual
+    assert p["desperdicios"].keys() == {"concreto", "mortero", "acero", "mallas", "acabados"}

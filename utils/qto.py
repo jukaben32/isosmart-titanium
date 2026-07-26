@@ -376,12 +376,15 @@ class MotorQTO:
                     "Malla_esquinera_externa_pieza", self._precio("Malla_esquinera_externa_pieza")),
             Partida("Muros", "Malla de unión",
                     (f"Tira de 10 cm x 2.40 m, ambos lados. "
-                     + (f"Costura horizontal por altura > {mallas['union_altura_umbral_m']} m "
+                     + (f"Uniones horizontales por altura > {mallas['union_altura_umbral_m']} m "
                         f"({piezas_union_por_altura} pzas, [doc] video 'Cuantificación de "
                         f"Materiales') + "
                         if piezas_union_por_altura > 0 else "")
-                     + f"cortes de panel ({piezas_union_por_cortes} pzas, [supuesto] "
-                       f"{mallas['union_fraccion_paneles_cortados']*100:.0f}% de paneles cortados)"),
+                     + f"cortes de ajuste por modulación + reparación de instalaciones "
+                       f"({piezas_union_por_cortes} pzas, [supuesto] "
+                       f"{mallas['union_fraccion_paneles_cortados']*100:.0f}% de paneles -- "
+                       f"video #46 confirma que son las 2 causas restantes, sin fórmula "
+                       f"verificada para cuantificarlas por separado todavía)"),
                     "pza", piezas_union, self._desp("mallas"),
                     "Malla_union_pieza", self._precio("Malla_union_pieza"),
                     "[doc]" if piezas_union_por_altura > 0 else "[supuesto]"),
