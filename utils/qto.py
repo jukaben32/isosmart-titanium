@@ -310,7 +310,10 @@ class MotorQTO:
         bultos = self._bultos_mortero(vol_mortero)
         partidas += [
             Partida("Muros", "Mortero de revoque",
-                    f"{esp_mortero*100:.1f} cm por cara, 2 capas, sobre {area_aplanado:.0f} m²",
+                    f"{esp_mortero*100:.1f} cm por cara, 2 capas, sobre {area_aplanado:.0f} m². "
+                    f"Rendimiento {self.p['mezclas']['mortero']['rendimiento_m3_por_bulto']*1000:.0f} "
+                    f"L/bulto (estimado por analogía con el concreto, NotebookLM del usuario; "
+                    f"sin ficha técnica directa del mortero proyectado todavía).",
                     "saco", bultos, self._desp("mortero"),
                     "Mortero_saco", self._precio("Mortero_saco")),
             Partida("Muros", "Arena para mortero",

@@ -879,3 +879,20 @@ def test_malla_union_por_altura_se_calcula_por_panel_no_en_agregado():
     # que la nueva es sustancialmente mayor.
     formula_vieja = math.ceil(g.ml_muros_total / 2.40) * 2
     assert esperado_por_altura > formula_vieja * 1.8  # ~2x, con margen
+
+
+def test_rendimiento_de_mortero_actualizado_con_estimacion_sourced():
+    """
+    Bug: rendimiento_m3_por_bulto=0.12 (120L) no tenía ninguna fuente,
+    marcado "VERIFICAR con proveedor". El NotebookLM del usuario aportó una
+    estimación por analogía física con el concreto (mismo razonamiento de
+    compresión de materiales): 135-145 L/bulto -- se usa el punto medio
+    (140L). Marcado explícitamente como estimación, no una ficha técnica
+    directa (la propia fuente lo etiqueta "(Est.)").
+    """
+    assert P["mezclas"]["mortero"]["rendimiento_m3_por_bulto"] == pytest.approx(0.14)
+
+    motor = MotorQTO(geo())
+    mortero = next(p for p in motor.partidas() if p.partida == "Mortero de revoque")
+    assert mortero.fuente == "[doc]"
+    assert "estimado" in mortero.detalle.lower()

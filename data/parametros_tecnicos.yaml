@@ -90,7 +90,22 @@ mezclas:
     botes_arena_por_bulto: 3.5        # [doc]
     botes_grava_por_bulto: 5.5        # [doc]
   mortero:
-    rendimiento_m3_por_bulto: 0.12    # [supuesto] VERIFICAR con proveedor
+    # [doc] VERIFICADO con NotebookLM del usuario (videos #37/#42): 135-145
+    # L/bulto (se usa el punto medio, 140 L). Antes: 0.12 m³ (120 L)
+    # [supuesto] sin ninguna fuente, "VERIFICAR con proveedor".
+    #
+    # ⚠️ Con una salvedad honesta que la propia fuente marca explícitamente
+    # como "(Est.)": a diferencia del rendimiento del concreto (138-148
+    # L/bulto), que sale de una ficha/tabla directa, este valor es una
+    # ESTIMACIÓN por analogía física -- se aplica el mismo razonamiento de
+    # compresión de materiales del concreto (cemento + agua ocupan los
+    # huecos entre agregado inerte) a la mezcla 1:7, sin una medición
+    # directa de fábrica para el mortero proyectado específicamente. Es
+    # mejor que el supuesto anterior (con razonamiento físico y comparado
+    # contra un caso análogo real), pero no tiene el mismo nivel de certeza
+    # que un dato de ficha técnica. Seguir marcado para verificar con
+    # proveedor si aparece una ficha real del mortero proyectado.
+    rendimiento_m3_por_bulto: 0.14    # [doc] 140 L, punto medio de 135-145 L (estimado)
     botes_arena_por_bulto: 7.0        # [doc] 1 bulto mortero : 7 botes arena
   # [doc] Prohibido usar CAL (daña la malla de acero).
   # [doc] Usar microfibra sintética + impermeabilizante integral.
