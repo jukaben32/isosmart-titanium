@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Módulo de Análisis de Ahorro Energético para IsoSmart Titanium
 Cálculos de carga térmica, consumo de aire acondicionado y beneficios de aislamiento
@@ -69,7 +68,7 @@ class AnalisisEnergetico:
     @classmethod
     def calcular_carga_termica(cls, area_m2: float, altura: float = 2.7,
                                sistema: str = "isotex",
-                               orientacion: str = "normal") -> Dict[str, float]:
+                               orientacion: str = "normal") -> dict[str, float]:
         """
         Calcula la carga térmica de refrigeración del edificio
 
@@ -120,7 +119,7 @@ class AnalisisEnergetico:
     @classmethod
     def calcular_consumo_mensual(cls, carga_termica_btu_h: float,
                                   seer: float = 18.0,
-                                  horas_operacion: float = 10.0) -> Dict[str, float]:
+                                  horas_operacion: float = 10.0) -> dict[str, float]:
         """
         Calcula el consumo mensual de energía para aire acondicionado
 
@@ -266,7 +265,7 @@ class AnalisisEnergetico:
         return pd.DataFrame(datos)
 
     @classmethod
-    def calcular_sistema_solar_recomendado(cls, area_m2: float) -> Dict:
+    def calcular_sistema_solar_recomendado(cls, area_m2: float) -> dict:
         """
         Calcula recomendación de sistema solar para complementar el ahorro
 
@@ -310,7 +309,7 @@ class AnalisisEnergetico:
         }
 
     @classmethod
-    def calcular_tamano_ac_recomendado(cls, area_m2: float, sistema: str = "isotex") -> Dict:
+    def calcular_tamano_ac_recomendado(cls, area_m2: float, sistema: str = "isotex") -> dict:
         """
         Calcula el tamaño recomendado de equipo de AC
 

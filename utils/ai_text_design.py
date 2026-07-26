@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import streamlit as st
 
-DEFAULT_TEXT_DESIGN_PARAMS: Dict[str, Any] = {
+DEFAULT_TEXT_DESIGN_PARAMS: dict[str, Any] = {
     "area_m2": 120.0,
     "niveles": 1,
     "perimetro_m": 44.0,
@@ -18,7 +18,7 @@ DEFAULT_TEXT_DESIGN_PARAMS: Dict[str, Any] = {
 }
 
 
-def _extract_json(text: str) -> Optional[Dict[str, Any]]:
+def _extract_json(text: str) -> dict[str, Any] | None:
     """Extrae el primer JSON válido aunque venga dentro de ```json ... ```."""
     candidates = []
     fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
@@ -43,7 +43,7 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _to_float(value: Any, default: Optional[float] = None) -> Optional[float]:
+def _to_float(value: Any, default: float | None = None) -> float | None:
     """Convierte valores de Gemini a float sin romper si vienen vacíos o como texto."""
     if value is None or value == "":
         return default
@@ -66,7 +66,7 @@ def _clamp(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(max_value, value))
 
 
-def parse_text_design_response(raw_text: str) -> Optional[Dict[str, Any]]:
+def parse_text_design_response(raw_text: str) -> dict[str, Any] | None:
     """
     Normaliza la respuesta IA a los parámetros que ya usa IsoSmart.
 
@@ -166,7 +166,7 @@ Responde SOLO un JSON válido, sin texto antes ni después y sin bloques de cód
 
 
 @st.cache_data(show_spinner=False, ttl=3600, hash_funcs={object: lambda _: "modelo_gemini"})
-def analyze_text_design_with_gemini(_model: Any, descripcion: str) -> Tuple[Optional[Dict[str, Any]], str]:
+def analyze_text_design_with_gemini(_model: Any, descripcion: str) -> tuple[dict[str, Any] | None, str]:
     """
     Llama a Gemini y devuelve parámetros normalizados junto con la respuesta cruda.
 

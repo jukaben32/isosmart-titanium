@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Módulo de Análisis Financiero para IsoSmart Titanium
 Cálculos de ROI, VAN, TIR, análisis de sensibilidad y proyecciones
@@ -23,12 +22,12 @@ class ResultadoFinanciero:
     """Resultado de análisis financiero"""
     roi_nominal: float          # % ROI total
     roi_anualizado: float      # % ROI anual compuesto
-    payback_anios: Optional[float]  # Años hasta recuperar el sobrecosto; None si nunca
+    payback_anios: float | None  # Años hasta recuperar el sobrecosto; None si nunca
     van: float                  # Valor Actual Neto
     tir: float                  # Tasa Interna de Retorno
     tco: float                  # Costo Total de Propiedad
     ahorro_acumulado: float     # Ahorro vs construcción tradicional
-    flujo_caja: List[float]    # Flujos de caja por año
+    flujo_caja: list[float]    # Flujos de caja por año
 
 
 class AnalisisFinanciero:
@@ -49,7 +48,7 @@ class AnalisisFinanciero:
     CONSUMO_AC_ISOTEX_KWH_M2 = 25       # kWh/m²/mes (hasta 50% menos)
 
     @classmethod
-    def calcular_ahorro_energia_mensual(cls, area_m2: float, sistema: str = "isotex") -> Dict[str, float]:
+    def calcular_ahorro_energia_mensual(cls, area_m2: float, sistema: str = "isotex") -> dict[str, float]:
         """
         Ahorro energético mensual frente a construcción tradicional.
 
@@ -266,7 +265,7 @@ class AnalisisFinanciero:
 
     @classmethod
     def analizar_sensibilidad_precio_materiales(cls, area_m2: float = 120,
-                                                 variacion_pct: List[float] = None,
+                                                 variacion_pct: list[float] = None,
                                                  sistema: str = "isotex") -> pd.DataFrame:
         """
         Analiza sensibilidad a variaciones en precios de materiales
@@ -418,7 +417,7 @@ class AnalisisFinanciero:
 
     @classmethod
     def calcular_costo_financiamiento(cls, monto: float, tasa_anual: float = 0.15,
-                                     plazo_meses: int = 60) -> Dict:
+                                     plazo_meses: int = 60) -> dict:
         """
         Calcula costos de financiamiento bancario
 
@@ -452,7 +451,7 @@ class AnalisisFinanciero:
         }
 
 
-def calcular_costo_unitario_por_sistema(area_m2: float) -> Dict[str, Dict]:
+def calcular_costo_unitario_por_sistema(area_m2: float) -> dict[str, dict]:
     """
     Compara costos unitarios por m² entre sistemas constructivos
 

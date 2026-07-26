@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 utils/geometria.py
 ------------------
@@ -40,19 +39,19 @@ class Geometria:
     """
 
     area_m2: float
-    perimetro_m: Optional[float] = None
-    altura_muro_m: Optional[float] = None
+    perimetro_m: float | None = None
+    altura_muro_m: float | None = None
     niveles: int = 1
-    esquinas: Optional[int] = None
+    esquinas: int | None = None
 
     # Vanos y ambientes. Si no se indican, se estiman por área.
-    ventanas: Optional[int] = None
-    puertas_exteriores: Optional[int] = None
-    puertas_interiores: Optional[int] = None
-    banos: Optional[int] = None
-    ml_cocina: Optional[float] = None
+    ventanas: int | None = None
+    puertas_exteriores: int | None = None
+    puertas_interiores: int | None = None
+    banos: int | None = None
+    ml_cocina: float | None = None
 
-    parametros: Dict[str, Any] = field(default_factory=cargar_parametros, repr=False)
+    parametros: dict[str, Any] = field(default_factory=cargar_parametros, repr=False)
 
     # -- validación ------------------------------------------------------
     def __post_init__(self):
@@ -65,7 +64,7 @@ class Geometria:
 
     # -- helpers ---------------------------------------------------------
     @property
-    def _defecto(self) -> Dict[str, Any]:
+    def _defecto(self) -> dict[str, Any]:
         return self.parametros["geometria_defecto"]
 
     @property
@@ -201,7 +200,7 @@ class Geometria:
 
     # -- interoperabilidad ------------------------------------------------
     @classmethod
-    def desde_session_state(cls, estado: Dict[str, Any]) -> Geometria:
+    def desde_session_state(cls, estado: dict[str, Any]) -> Geometria:
         """
         Construye la geometría a partir de las claves que la app ya escribía y
         nunca leía. Este método es, literalmente, el cable que faltaba.
@@ -220,7 +219,7 @@ class Geometria:
             niveles=int(_num("calc_niveles", "plan_niveles") or 1),
         )
 
-    def resumen(self) -> Dict[str, float]:
+    def resumen(self) -> dict[str, float]:
         """Diccionario plano para mostrar en la UI o adjuntar al PDF."""
         return {
             "area_construida_m2": round(self.area_m2, 2),

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 utils/gemini_plan.py
 --------------------

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 utils/dominio.py
 ----------------
@@ -25,8 +24,8 @@ silencio.
 from __future__ import annotations
 
 import unicodedata
+from collections.abc import Iterable
 from enum import Enum
-from typing import Iterable
 
 
 def _slug(texto: object) -> str:

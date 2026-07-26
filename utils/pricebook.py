@@ -6,7 +6,7 @@ from typing import Dict, Tuple
 
 from .storage import read_json, write_json_atomic
 
-DEFAULT_PRICEBOOK: Dict[str, float] = {
+DEFAULT_PRICEBOOK: dict[str, float] = {
     "Panel_Muro": 925.00,
     "Panel_Techo": 1125.00,
     "H_3000_PSI": 7350.00,
@@ -74,7 +74,7 @@ PRECIOS_POR_VERIFICAR = frozenset({
 class Pricebook:
     path: str
 
-    def load(self) -> Dict[str, float]:
+    def load(self) -> dict[str, float]:
         data = read_json(self.path, default={})
         merged = copy.deepcopy(DEFAULT_PRICEBOOK)
         if isinstance(data, dict):
@@ -85,8 +85,8 @@ class Pricebook:
                     continue
         return merged
 
-    def save(self, prices: Dict[str, float]) -> None:
-        normalized: Dict[str, float] = {}
+    def save(self, prices: dict[str, float]) -> None:
+        normalized: dict[str, float] = {}
         for k, v in prices.items():
             try:
                 normalized[str(k)] = float(v)
@@ -94,8 +94,8 @@ class Pricebook:
                 continue
         write_json_atomic(self.path, normalized)
 
-    def diff_from_default(self, prices: Dict[str, float]) -> Dict[str, Tuple[float, float]]:
-        diff: Dict[str, Tuple[float, float]] = {}
+    def diff_from_default(self, prices: dict[str, float]) -> dict[str, tuple[float, float]]:
+        diff: dict[str, tuple[float, float]] = {}
         for k, default_v in DEFAULT_PRICEBOOK.items():
             current_v = prices.get(k, default_v)
             if float(current_v) != float(default_v):

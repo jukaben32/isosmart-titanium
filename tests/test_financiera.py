@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests del módulo financiero (utils/financiera.py).
 

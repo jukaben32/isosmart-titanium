@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Módulo de cálculos avanzados para IsoSmart Titanium
 """
@@ -105,7 +104,7 @@ class CalculadoraEstructural:
         return max(espesor, 12)  # Mínimo 12 cm
 
     @staticmethod
-    def calcular_acero_losa(area: float, luz: float) -> Dict[str, float]:
+    def calcular_acero_losa(area: float, luz: float) -> dict[str, float]:
         """
         Calcula acero de refuerzo para losa
 
@@ -141,7 +140,7 @@ class CalculadoraEstructural:
     @staticmethod
     def calcular_volumen_concreto(area_muros: float, area_losa: float,
                                   espesor_muro: float = 0.12,
-                                  espesor_losa: float = 0.12) -> Dict[str, float]:
+                                  espesor_losa: float = 0.12) -> dict[str, float]:
         """
         Calcula volumen de concreto necesario
 
@@ -175,7 +174,7 @@ class CalculadoraMateriales:
     """Cálculo detallado de materiales"""
 
     @staticmethod
-    def calcular_materiales_muro(area_muros: float, sistema: str) -> Dict[str, float]:
+    def calcular_materiales_muro(area_muros: float, sistema: str) -> dict[str, float]:
         """
         Calcula materiales necesarios para muros
 
@@ -216,7 +215,7 @@ class CalculadoraMateriales:
         return resultados
 
     @staticmethod
-    def calcular_acabados(area_construida: float, area_muros: float) -> Dict[str, float]:
+    def calcular_acabados(area_construida: float, area_muros: float) -> dict[str, float]:
         """
         Calcula materiales de acabados
 
@@ -248,7 +247,7 @@ class CalculadoraMateriales:
         }
 
 
-def calcular_costo_unitario_compuesto(materiales: Dict[str, Tuple[float, float]]) -> float:
+def calcular_costo_unitario_compuesto(materiales: dict[str, tuple[float, float]]) -> float:
     """
     Calcula costo unitario compuesto
 

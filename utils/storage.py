@@ -38,6 +38,6 @@ def write_json_atomic(path: str, data: Any) -> None:
             pass
 
 
-def list_dict_values(d: Dict[str, Any]) -> List[Dict[str, Any]]:
+def list_dict_values(d: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"id": k, **v} for k, v in d.items()]
 

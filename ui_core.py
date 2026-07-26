@@ -1,17 +1,17 @@
-# -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
 import base64
+import html
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import google.generativeai as genai
 import streamlit as st
 
-from utils.repositorio import RepositorioSQLite, obtener_repositorio
-
 from utils.ai_media import generate_facade_image_fal, generate_video_luma
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
+from utils.estado import ProyectoState
+from utils.repositorio import RepositorioSQLite, obtener_repositorio
 
 # ---------------------------------------------------------------------------
 # Componente opcional de lienzo interactivo.
@@ -43,13 +43,13 @@ class ProjectManager:
 
     # -- leads -----------------------------------------------------------
     @property
-    def leads(self) -> List[Dict]:
+    def leads(self) -> list[dict]:
         try:
             return self.repo.listar()
         except Exception:
             return []
 
-    def save_lead(self, lead_data: Dict):
+    def save_lead(self, lead_data: dict):
         """Guarda un lead interesado."""
         lead_data = dict(lead_data)
         lead_data.setdefault("fecha", datetime.now().isoformat())
@@ -57,16 +57,16 @@ class ProjectManager:
 
     # -- proyectos -------------------------------------------------------
     @property
-    def projects(self) -> Dict:
+    def projects(self) -> dict:
         return {p["id"]: p for p in self._sqlite.listar_proyectos()}
 
-    def save_project(self, project_id: str, data: Dict):
+    def save_project(self, project_id: str, data: dict):
         self._sqlite.guardar_proyecto(project_id, data)
 
-    def get_project(self, project_id: str) -> Optional[Dict]:
+    def get_project(self, project_id: str) -> dict | None:
         return self._sqlite.obtener_proyecto(project_id)
 
-    def list_projects(self) -> List[Dict]:
+    def list_projects(self) -> list[dict]:
         return self._sqlite.listar_proyectos()
 
     def delete_project(self, project_id: str):
@@ -83,18 +83,27 @@ class ProjectManager:
 from utils.pdf_propuesta import PDFGenerator, _pdf_safe  # noqa: F401,E402
 
 
-def create_download_link(pdf_content: bytes, filename: str, button_text: str = "📥 Descargar PDF") -> str:
+def create_download_link(pdf_content: bytes, filename: str,
+                         button_text: str = "📥 Descargar PDF") -> str:
+    """
+    Enlace de descarga embebido.
+
+    El estilo pasó a `.streamlit/estilos.css` (clase `iso-btn`) y el nombre de
+    archivo se escapa: antes se interpolaba directo en el atributo `download`,
+    y en la exportación a Excel se metía el nombre del cliente sin sanear.
+    """
     b64 = base64.b64encode(pdf_content).decode()
-    return f'''
-    <a href="data:application/pdf;base64,{b64}" download="{filename}">
-        <button style="width:100%; border-radius:10px; background-color:#28a745;
-                       color:white; padding:15px; border:none; cursor:pointer;
-                       font-size:16px; font-weight:bold;">{button_text}</button>
-    </a>
-    '''
+    nombre = html.escape(filename, quote=True)
+    return (
+        f'<a href="data:application/pdf;base64,{b64}" download="{nombre}">'
+        f'<button class="iso-btn iso-btn--verde">{html.escape(button_text)}</button></a>'
+    )
 
 
-def initialize_gemini(api_key: str) -> Optional[any]:
+# Era `Optional[any]` con la función incorporada `any` en minúscula, no el
+# tipo `Any`. Como anotación no fallaba, pero al modernizar la sintaxis a
+# `any | None` se convirtió en TypeError al importar el módulo.
+def initialize_gemini(api_key: str) -> Any | None:
     if not api_key:
         return None
     try:
@@ -287,23 +296,31 @@ def calc_h_beams_kg(area_m2: float, perimetro_m: float, beam_spacing_m: float, k
 
 def sincronizar_parametros_globales(datos: dict, origen: str):
     """
-    Inyecta de forma segura las dimensiones detectadas o calculadas
-    en el session_state para que el calculador de presupuestos las use.
+    Inyecta las dimensiones detectadas (canvas, Gemini o Text-to-Design) en el
+    estado del proyecto.
+
+    Antes escribía cinco claves sueltas de `st.session_state` que NADIE leía
+    (`calc_perimetro_m`, `calc_niveles`, `calc_altura_muro_m`,
+    `calc_espesor_muro_m`): cinco escrituras, cero lecturas. Ahora delega en
+    `ProyectoState`, que valida, sanea y alimenta al motor de cantidades.
     """
     if not datos:
         return
 
-    st.success(f"🔄 Parámetros actualizados automáticamente desde: **{origen}**")
-    
-    # Mapeo seguro con fallback para evitar sobreescritura con None
-    if datos.get("area_m2") is not None:
-        st.session_state["calc_area_m2"] = float(datos["area_m2"])
-    if datos.get("perimetro_m") is not None:
-        st.session_state["calc_perimetro_m"] = float(datos["perimetro_m"])
-    if datos.get("niveles") is not None:
-        st.session_state["calc_niveles"] = int(datos["niveles"])
-    if datos.get("altura_muro_m") is not None:
-        st.session_state["calc_altura_muro_m"] = float(datos["altura_muro_m"])
-    if datos.get("espesor_muro_m") is not None:
-        st.session_state["calc_espesor_muro_m"] = float(datos["espesor_muro_m"])
+    estado = ProyectoState.cargar().aplicar_metricas(datos, origen=origen)
+    estado.guardar()
 
+    st.success(f"🔄 Parámetros actualizados desde: **{origen}**")
+
+    resumen = []
+    if datos.get("area_m2"):
+        resumen.append(f"área {estado.area_m2:,.1f} m²")
+    if datos.get("perimetro_m"):
+        resumen.append(f"perímetro {estado.perimetro_m:,.1f} m")
+    if datos.get("niveles"):
+        resumen.append(f"{estado.niveles} nivel(es)")
+    if resumen:
+        st.caption("Se usará en el presupuesto: " + ", ".join(resumen))
+
+    for aviso in estado.avisos:
+        st.warning(f"⚠️ {aviso}")

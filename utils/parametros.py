@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 utils/parametros.py
 -------------------
@@ -24,7 +23,7 @@ RUTA_DEFECTO = os.path.join(
 
 
 @lru_cache(maxsize=8)
-def cargar_parametros(ruta: str = RUTA_DEFECTO) -> Dict[str, Any]:
+def cargar_parametros(ruta: str = RUTA_DEFECTO) -> dict[str, Any]:
     """
     Devuelve los parámetros técnicos. Cacheado: se lee una vez por proceso.
 

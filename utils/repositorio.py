@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 utils/repositorio.py
 --------------------
@@ -60,7 +59,7 @@ import sqlite3
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 RUTA_SQLITE_DEFECTO = os.path.join("data", "isosmart.sqlite3")
@@ -72,17 +71,17 @@ _CAMPOS = (
 
 
 def _ahora_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class RepositorioLeads(ABC):
     """Contrato mínimo que la app necesita para gestionar leads."""
 
     @abstractmethod
-    def guardar(self, lead: Dict[str, Any]) -> Dict[str, Any]: ...
+    def guardar(self, lead: dict[str, Any]) -> dict[str, Any]: ...
 
     @abstractmethod
-    def listar(self) -> List[Dict[str, Any]]: ...
+    def listar(self) -> list[dict[str, Any]]: ...
 
     @property
     def descripcion(self) -> str:
@@ -142,7 +141,7 @@ class RepositorioSQLite(RepositorioLeads):
                 """
             )
 
-    def guardar(self, lead: Dict[str, Any]) -> Dict[str, Any]:
+    def guardar(self, lead: dict[str, Any]) -> dict[str, Any]:
         registro = {
             "id": lead.get("id") or uuid.uuid4().hex[:12],
             "fecha": lead.get("fecha") or _ahora_iso(),
@@ -158,27 +157,27 @@ class RepositorioSQLite(RepositorioLeads):
             )
         return registro
 
-    def listar(self) -> List[Dict[str, Any]]:
+    def listar(self) -> list[dict[str, Any]]:
         with closing(self._conectar()) as con:
             filas = con.execute("SELECT * FROM leads ORDER BY fecha DESC").fetchall()
         return [dict(f) for f in filas]
 
     # -- proyectos -------------------------------------------------------
-    def guardar_proyecto(self, proyecto_id: str, datos: Dict[str, Any]) -> None:
+    def guardar_proyecto(self, proyecto_id: str, datos: dict[str, Any]) -> None:
         with closing(self._conectar()) as con, con:
             con.execute(
                 "INSERT OR REPLACE INTO proyectos (id, updated_at, datos) VALUES (?, ?, ?)",
                 (proyecto_id, _ahora_iso(), json.dumps(datos, ensure_ascii=False)),
             )
 
-    def obtener_proyecto(self, proyecto_id: str) -> Optional[Dict[str, Any]]:
+    def obtener_proyecto(self, proyecto_id: str) -> dict[str, Any] | None:
         with closing(self._conectar()) as con:
             fila = con.execute("SELECT * FROM proyectos WHERE id = ?", (proyecto_id,)).fetchone()
         if not fila:
             return None
         return {"id": fila["id"], "updated_at": fila["updated_at"], **json.loads(fila["datos"])}
 
-    def listar_proyectos(self) -> List[Dict[str, Any]]:
+    def listar_proyectos(self) -> list[dict[str, Any]]:
         with closing(self._conectar()) as con:
             filas = con.execute("SELECT * FROM proyectos ORDER BY updated_at DESC").fetchall()
         return [
@@ -208,7 +207,7 @@ class RepositorioSupabase(RepositorioLeads):
         self.timeout = timeout
 
     @property
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         return {
             "apikey": self.anon_key,
             "Authorization": f"Bearer {self.anon_key}",
@@ -216,7 +215,7 @@ class RepositorioSupabase(RepositorioLeads):
             "Prefer": "return=representation",
         }
 
-    def guardar(self, lead: Dict[str, Any]) -> Dict[str, Any]:
+    def guardar(self, lead: dict[str, Any]) -> dict[str, Any]:
         import requests
 
         registro = {
@@ -231,7 +230,7 @@ class RepositorioSupabase(RepositorioLeads):
         resp.raise_for_status()
         return registro
 
-    def listar(self) -> List[Dict[str, Any]]:
+    def listar(self) -> list[dict[str, Any]]:
         import requests
 
         resp = requests.get(
@@ -248,7 +247,7 @@ class RepositorioSupabase(RepositorioLeads):
 # Selección automática
 # ---------------------------------------------------------------------------
 
-def _leer_config_supabase() -> Optional[Dict[str, str]]:
+def _leer_config_supabase() -> dict[str, str] | None:
     url = key = ""
     try:
         import streamlit as st

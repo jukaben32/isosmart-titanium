@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 utils/vision.py
 ---------------
@@ -44,7 +43,7 @@ class PlanParams:
 # PARSER JSON ROBUSTO
 # ============================================================================
 
-def _extract_json(text: str) -> Optional[Dict[str, Any]]:
+def _extract_json(text: str) -> dict[str, Any] | None:
     """
     Extrae el primer bloque JSON válido de la respuesta de Gemini.
     Soporta respuestas con bloques ```json ... ``` y texto adicional.
@@ -85,7 +84,7 @@ import streamlit as st
 def analyze_plan_image_with_gemini(
     _model: Any,
     image: Image.Image,
-) -> Tuple[Optional[Dict[str, Any]], str]:
+) -> tuple[dict[str, Any] | None, str]:
     """
     Fuerza a Gemini a comportarse como un transcriptor geométrico puro,
     evitando alucinaciones textuales no deseadas.

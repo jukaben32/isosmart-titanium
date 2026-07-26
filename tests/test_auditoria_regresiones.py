@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Regresiones de la auditoría (2026-07-26).
 

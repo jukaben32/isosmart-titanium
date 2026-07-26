@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 IsoSmart Titanium - Módulo de Ahorro Energético
 Análisis de carga térmica, consumo de AC y beneficios del aislamiento
@@ -16,50 +15,14 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.energia import AnalisisEnergetico
+from utils.estilos import inyectar_css, tarjeta_metrica  # noqa: E402
 
 # Configuración de página
-st.set_page_config(
-    page_title="Análisis Energético - IsoSmart Titanium",
-    page_icon="⚡",
-    layout="wide"
-)
+# st.set_page_config() lo llama app.py: solo puede invocarse una vez por sesión.
+# Este módulo ahora se importa desde el router unificado, no se ejecuta suelto.
 
 # CSS personalizado
-st.markdown("""
-<style>
-    .energy-card {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        padding: 1.5rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        margin: 0.5rem 0;
-    }
-    .energy-card.blue {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    }
-    .energy-card.orange {
-        background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-    }
-    .energy-card.purple {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
-    .section-header {
-        background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%);
-        padding: 1rem 1.5rem;
-        border-radius: 10px;
-        color: white;
-        margin: 2rem 0 1rem 0;
-    }
-    .savings-highlight {
-        background: linear-gradient(135deg, #38ef7d 0%, #11998e 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-    }
-</style>
-""", unsafe_allow_html=True)
+inyectar_css()   # hoja de estilos única: .streamlit/estilos.css
 
 
 def format_rd(value: float) -> str:
@@ -75,14 +38,8 @@ def format_kg(value: float) -> str:
 
 
 def render_energy_card(label: str, value: str, subtext: str = "", card_class: str = ""):
-    card_class_css = f"energy-card {card_class}"
-    st.markdown(f"""
-    <div class="{card_class_css}">
-        <p style="font-size: 2.5rem; font-weight: bold; margin: 0;">{value}</p>
-        <p style="font-size: 1rem; opacity: 0.9; margin: 5px 0 0 0;">{label}</p>
-        {f'<p style="font-size: 0.8rem; opacity: 0.8;">{subtext}</p>' if subtext else ''}
-    </div>
-    """, unsafe_allow_html=True)
+    """Delegado a utils.estilos (antes era render_metric_card copiada con otro nombre)."""
+    tarjeta_metrica(label, value, subtext, card_class, clase_base="energy-card")
 
 
 def grafico_carga_termica_comparativa(area: float) -> go.Figure:
@@ -499,5 +456,3 @@ def main():
     """, unsafe_allow_html=True)
 
 
-if __name__ == "__main__":
-    main()

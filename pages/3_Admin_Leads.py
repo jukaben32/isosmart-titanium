@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import hmac
 import os
 import sys
@@ -11,6 +10,10 @@ from utils.repositorio import obtener_repositorio  # noqa: E402
 
 st.set_page_config(page_title="CRM - Leads", page_icon="🗃️", layout="wide")
 
+# Este módulo SIGUE en pages/ a propósito: es el único que se mantiene como
+# página independiente de Streamlit. El CRM está protegido por contraseña y no
+# forma parte del flujo comercial, así que conviene que viva fuera del router
+# principal. El resto de páginas se movió a paginas/ y se enruta desde app.py.
 st.title("🗃️ Panel de Administración - Leads")
 
 # ---------------------------------------------------------------------------

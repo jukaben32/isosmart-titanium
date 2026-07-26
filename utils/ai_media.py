@@ -13,7 +13,7 @@ import streamlit as st
 # y un usuario podía recibir el resultado generado con la clave de otro.
 # El prefijo "_" excluye el argumento del hash (convención de Streamlit).
 @st.cache_data(show_spinner=False, ttl=3600)
-def generate_facade_image_fal(prompt: str, _api_key: str) -> Optional[str]:
+def generate_facade_image_fal(prompt: str, _api_key: str) -> str | None:
     """
     Llama a la API de Fal.ai (modelo Flux) para generar un render fotorrealista.
     """
@@ -51,7 +51,7 @@ def generate_facade_image_fal(prompt: str, _api_key: str) -> Optional[str]:
     return None
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def generate_video_luma(image_url: str, prompt: str, _api_key: str) -> Optional[str]:
+def generate_video_luma(image_url: str, prompt: str, _api_key: str) -> str | None:
     """
     Llama a la API de Luma Dream Machine para generar un video cinematográfico 
     a partir de una imagen.

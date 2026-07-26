@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
 import base64
 import hashlib
@@ -13,7 +12,6 @@ import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
 
-# Helpers compartidos desde ui_core
 from ui_core import (
     PDFGenerator,
     ProjectManager,
@@ -29,6 +27,9 @@ from ui_core import (
 )
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS
 from utils.calculador import BudgetCalculator
+
+# Helpers compartidos desde ui_core
+from utils.estilos import boton_enlace  # noqa: E402
 from utils.financiera import AnalisisFinanciero
 from utils.gemini_plan import analyze_plan_image_with_gemini
 from utils.pdf_utils import pdf_first_page_to_image
@@ -458,13 +459,7 @@ def pagina_calculadora():
             f"Generado por IsoSmart Titanium."
         )
         wa_url = f"https://api.whatsapp.com/send?text={quote(wa_text)}"
-        st.markdown(
-            f'<a href="{wa_url}" target="_blank">'
-            f'<button style="width:100%; border-radius:10px; background-color:#25D366; color:white; '
-            f'padding:15px; border:none; cursor:pointer; font-size:16px; font-weight:bold;">'
-            f'💬 Enviar por WhatsApp</button></a>',
-            unsafe_allow_html=True
-        )
+        boton_enlace(wa_url, "💬 Enviar por WhatsApp", variante="whatsapp")
 
     with col_exp3:
         if st.button("📊 Exportar Excel", use_container_width=True):
@@ -474,12 +469,11 @@ def pagina_calculadora():
                 obra_terminada_df.to_excel(writer, sheet_name='Obra Terminada', index=False)
             output.seek(0)
             b64 = base64.b64encode(output.getvalue()).decode()
+            nombre_archivo = f"Presupuesto_Completo_{cliente.replace(' ', '_')}.xlsx"
             st.markdown(
                 f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" '
-                f'download="Presupuesto_Completo_{cliente.replace(" ", "_")}.xlsx">'
-                f'<button style="width:100%; border-radius:10px; background-color:#27ae60; color:white; '
-                f'padding:15px; border:none; cursor:pointer; font-size:16px; font-weight:bold;">'
-                f'📊 Descargar Excel</button></a>',
+                f'download="{html.escape(nombre_archivo, quote=True)}">'
+                f'<button class="iso-btn iso-btn--excel">📊 Descargar Excel</button></a>',
                 unsafe_allow_html=True
             )
 

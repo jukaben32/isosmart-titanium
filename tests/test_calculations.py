@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Pruebas unitarias para IsoSmart Titanium
 """

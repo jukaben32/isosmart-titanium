@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 utils/tarifa.py
 ---------------
@@ -28,7 +27,7 @@ from __future__ import annotations
 from typing import Dict
 
 # Cargo fijo mensual y precio marginal por bloque de consumo (RD$/kWh).
-TARIFA_BLOQUES: Dict[str, float] = {
+TARIFA_BLOQUES: dict[str, float] = {
     "fijo": 145.00,      # Cargo fijo mensual (RD$)
     "bloque_1": 7.20,    # 0–100 kWh
     "bloque_2": 9.80,    # 101–200 kWh
@@ -41,7 +40,7 @@ KG_CO2_POR_KWH = 0.4
 
 
 def calcular_costo_energia_rd(kwh_mensuales: float,
-                              tarifa: Dict[str, float] | None = None) -> float:
+                              tarifa: dict[str, float] | None = None) -> float:
     """
     Costo mensual en RD$ aplicando la estructura marginal por bloques.
 

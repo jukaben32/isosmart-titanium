@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 utils/pdf_propuesta.py
 ----------------------
@@ -40,7 +39,7 @@ class PDFGenerator:
         self.pdf = FPDF()
         self.pdf.set_auto_page_break(auto=True, margin=15)
 
-    def generar_propuesta(self, cliente: str, datos_proyecto: Dict,
+    def generar_propuesta(self, cliente: str, datos_proyecto: dict,
                          presupuesto_df: pd.DataFrame, total: float) -> bytes:
         self.pdf.add_page()
 

@@ -32,6 +32,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Las páginas de Streamlit necesitan manipular sys.path antes de importar utils.
 "pages/*.py" = ["E402"]
+"paginas/*.py" = ["E402"]
 
 # ---------------------------------------------------------------------------
 # Pytest

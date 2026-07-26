@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
 import streamlit as st
 

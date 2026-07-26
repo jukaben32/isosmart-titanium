@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 utils/qto.py
 ------------
@@ -61,7 +60,7 @@ class Partida:
     unidad: str
     cantidad_neta: float
     desperdicio: float
-    clave_precio: Optional[str]
+    clave_precio: str | None
     precio_unitario: float
     fuente: str = "[doc]"       # [doc] = BASE_TECNICA | [supuesto] = estimación
 
@@ -77,7 +76,7 @@ class Partida:
     def precio_por_verificar(self) -> bool:
         return self.clave_precio in PRECIOS_POR_VERIFICAR
 
-    def a_dict(self) -> Dict[str, Any]:
+    def a_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d.update({
             "cantidad": round(self.cantidad, 2),
@@ -99,12 +98,12 @@ class MotorQTO:
     def __init__(
         self,
         geometria: Geometria,
-        precios: Optional[Dict[str, float]] = None,
+        precios: dict[str, float] | None = None,
         sistema: str = "isotex",
         calidad: str = "media",
         zona_riesgo: str = "moderado",
         aplanado_mecanizado: bool = False,
-        parametros: Optional[Dict[str, Any]] = None,
+        parametros: dict[str, Any] | None = None,
     ):
         self.geo = geometria
         self.precios = dict(precios or DEFAULT_PRICEBOOK)
@@ -127,7 +126,7 @@ class MotorQTO:
         return float(self.p["desperdicios"].get(clave, 0.0))
 
     @property
-    def _factores_zona(self) -> Dict[str, float]:
+    def _factores_zona(self) -> dict[str, float]:
         return self.p["zonas_riesgo"][self.zona.value]
 
     @property
@@ -157,7 +156,7 @@ class MotorQTO:
     # PARTIDAS
     # ==================================================================
 
-    def _cimentacion(self) -> List[Partida]:
+    def _cimentacion(self) -> list[Partida]:
         g, esp = self.geo, self.p["espesores"]
         area = g.area_cimentacion_m2
         f_horm = self._factores_zona["hormigon"]
@@ -186,7 +185,7 @@ class MotorQTO:
                     "H_3000_PSI", self._precio("H_3000_PSI") * 1.20),
         ]
 
-    def _muros(self) -> List[Partida]:
+    def _muros(self) -> list[Partida]:
         g = self.geo
         esp_mortero = self.p["espesores"]["mortero_muro_por_cara_m"]
         mallas = self.p["mallas"]
@@ -269,9 +268,9 @@ class MotorQTO:
         )
         return partidas
 
-    def _losa(self) -> List[Partida]:
+    def _losa(self) -> list[Partida]:
         g, esp = self.geo, self.p["espesores"]
-        partidas: List[Partida] = []
+        partidas: list[Partida] = []
 
         if g.area_losa_azotea_m2 > 0:
             partidas += [
@@ -304,7 +303,7 @@ class MotorQTO:
         )
         return partidas
 
-    def _instalaciones(self) -> List[Partida]:
+    def _instalaciones(self) -> list[Partida]:
         area = self.geo.area_m2
         return [
             Partida("Instalaciones", "Instalación eléctrica",
@@ -317,7 +316,7 @@ class MotorQTO:
                     self._precio("Instalacion_sanitaria_m2"), "[supuesto]"),
         ]
 
-    def _acabados(self) -> List[Partida]:
+    def _acabados(self) -> list[Partida]:
         g = self.geo
         f = self._factor_calidad
         clave_piso = "Porcelanato_m2" if self.calidad in (Calidad.ALTA, Calidad.LUJO) else "Ceramica_m2"
@@ -375,7 +374,7 @@ class MotorQTO:
         ]
         return partidas
 
-    def _mano_obra(self) -> List[Partida]:
+    def _mano_obra(self) -> list[Partida]:
         g = self.geo
         mo = self.p["mano_obra"]
         jornal = self._precio("MO_jornal_dia")
@@ -409,7 +408,7 @@ class MotorQTO:
     # API PÚBLICA
     # ==================================================================
 
-    def partidas(self) -> List[Partida]:
+    def partidas(self) -> list[Partida]:
         return (self._cimentacion() + self._muros() + self._losa()
                 + self._instalaciones() + self._acabados() + self._mano_obra())
 
@@ -452,7 +451,7 @@ class MotorQTO:
         ].reset_index(drop=True)
 
     # -- comparación gris vs gris ---------------------------------------
-    def comparar_con_tradicional(self, ahorro_obra_gris: Optional[float] = None) -> Dict[str, Any]:
+    def comparar_con_tradicional(self, ahorro_obra_gris: float | None = None) -> dict[str, Any]:
         """
         Comparación honesta contra construcción tradicional.
 

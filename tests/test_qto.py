@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests del motor de cantidades (utils/qto.py) y del modelo geométrico.
 
@@ -18,7 +17,7 @@ import pytest
 
 sys.path.insert(0, ".")
 
-from utils.geometria import Geometria          # noqa: E402
+from utils.geometria import Geometria  # noqa: E402
 from utils.parametros import cargar_parametros  # noqa: E402
 from utils.qto import CATEGORIAS_OBRA_GRIS, MotorQTO  # noqa: E402
 
