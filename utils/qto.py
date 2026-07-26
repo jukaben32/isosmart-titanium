@@ -146,7 +146,30 @@ class MotorQTO:
         return bultos * botes * litros_bote / 1000.0
 
     def _jornal(self, area_m2: float, rendimiento_m2_dia: float) -> float:
-        """Costo de mano de obra: días de cuadrilla x personas x jornal."""
+        """
+        Costo de mano de obra: días de cuadrilla x personas x jornal.
+
+        VERIFICADO (revisión de precisión, 2026-07-26): al auditar esta
+        fórmula pareció, a primera vista, un posible triple conteo -- ¿por
+        qué multiplicar los días por el tamaño de la cuadrilla si el
+        rendimiento ya "incluye" a la cuadrilla?
+
+        Se verificó contra la convención estándar de Análisis de Precios
+        Unitarios (APU) usada en Centroamérica y el Caribe: el "rendimiento"
+        (m²/día) SIEMPRE se reporta como la producción de la CUADRILLA
+        COMPLETA, nunca de un trabajador individual. Ejemplo de tabla de
+        referencia real: "1 Albañil + 1 Ayudante + 1 Peón -> aplanado
+        exterior: 24 m²/día" (rendimiento de los 3, no de uno).
+        Fuente: opus-planet.mx/blog/rendimientos-mano-de-obra-construccion-mexico/
+
+        Por tanto `dias = area / rendimiento` son días-CUADRILLA (calendario),
+        y `dias * cuadrilla_personas` son persona-días totales -- la fórmula
+        correcta para el costo, no un triple conteo. Los rendimientos de
+        `docs/BASE_TECNICA_EPS_ICF.md` (15-20 m²/día aplanado manual) siguen
+        la misma convención y son, de hecho, más lentos que el pañete
+        tradicional (24-25 m²/día) -- coherente con que instalar sobre malla
+        de refuerzo es más lento que un repello convencional.
+        """
         if rendimiento_m2_dia <= 0:
             return 0.0
         dias = area_m2 / rendimiento_m2_dia

@@ -118,12 +118,21 @@ mallas:
 # ---------------------------------------------------------------------------
 # [doc] Aplanado manual 15-20 m²/día; lanzadora neumática 60-70 m²/día.
 mano_obra:
+  # [doc] Aplanado manual 15-20 m²/día; lanzadora neumática 60-70 m²/día.
+  # VERIFICADO: estos rendimientos siguen la convención estándar de Análisis
+  # de Precios Unitarios (APU) -- son la producción de la CUADRILLA
+  # completa, no de un trabajador individual. Ver utils/qto.py::_jornal()
+  # para el detalle de la verificación y la fuente.
   aplanado_m2_dia_manual: 17.5
   aplanado_m2_dia_lanzadora: 65.0
   montaje_panel_m2_dia: 45.0        # [supuesto]
   cimentacion_m2_dia: 25.0          # [supuesto]
   losa_m2_dia: 30.0                 # [supuesto]
-  cuadrilla_personas: 3             # [supuesto]
+  # [supuesto], pero corroborado: tablas de rendimiento por cuadrilla en
+  # construcción latinoamericana usan típicamente "1 Albañil + 1 Ayudante +
+  # 1 Peón" (3 personas) para actividades de aplanado/repello -- coincide
+  # con este valor.
+  cuadrilla_personas: 3
 
 # ---------------------------------------------------------------------------
 # Geometría por defecto (cuando no se extrae del plano)

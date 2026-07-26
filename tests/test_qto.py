@@ -451,3 +451,44 @@ def test_el_conflicto_de_anclaje_esta_documentado_y_visible():
     assert "40-50" in anclas.detalle
 
     assert "fuente_conflicto_url" in P["anclaje"]
+
+
+# ===========================================================================
+# Mano de obra: verificación de la convención de rendimiento (no un bug)
+# ===========================================================================
+
+def test_jornal_no_es_un_triple_conteo():
+    """
+    Al auditar `_jornal()` parecía, a primera vista, un posible triple conteo:
+    ¿por qué multiplicar días por tamaño de cuadrilla si el rendimiento ya
+    "incluye" a la cuadrilla? Se verificó contra la convención estándar de
+    Análisis de Precios Unitarios (APU): el rendimiento (m²/día) SIEMPRE se
+    reporta como producción de la CUADRILLA completa, nunca de un trabajador
+    individual (ej. real de tabla de referencia: "1 Albañil + 1 Ayudante +
+    1 Peón -> aplanado exterior: 24 m²/día", no 24 m²/día por persona).
+
+    Este test fija el resultado verificado para que una futura "corrección"
+    -- quitar la multiplicación por cuadrilla_personas pensando que es un
+    triple conteo -- se note inmediatamente.
+    """
+    motor = MotorQTO(geo())
+    aplanado = next(p for p in motor.partidas() if "Aplanado" in p.partida)
+
+    area_aplanado = motor.geo.area_muros_m2 * 2  # ambas caras
+    rendimiento = P["mano_obra"]["aplanado_m2_dia_manual"]
+    cuadrilla = P["mano_obra"]["cuadrilla_personas"]
+
+    dias_cuadrilla_esperados = area_aplanado / rendimiento
+    persona_dias_esperados = dias_cuadrilla_esperados * cuadrilla
+
+    assert aplanado.cantidad_neta == pytest.approx(persona_dias_esperados, rel=1e-6)
+    # Y NO debe coincidir con los días de cuadrilla sin multiplicar (lo que
+    # daría una "corrección" errónea si alguien quita el factor de cuadrilla).
+    assert aplanado.cantidad_neta != pytest.approx(dias_cuadrilla_esperados, rel=1e-6)
+
+
+def test_cuadrilla_de_tres_personas_esta_documentada_no_es_arbitraria():
+    """cuadrilla_personas=3 corresponde a la composición típica reportada en
+    tablas de rendimiento APU para aplanado/repello (1 Albañil + 1 Ayudante +
+    1 Peón), no a un número elegido al azar."""
+    assert P["mano_obra"]["cuadrilla_personas"] == 3
