@@ -245,10 +245,19 @@ class MotorQTO:
         ]
 
         # --- mallas de refuerzo -------------------------------------------
-        piezas_zigzag = (
-            g.n_ventanas * mallas["zigzag_piezas_por_ventana"]
-            + g.n_puertas_total * mallas["zigzag_piezas_por_puerta"]
-        ) * mallas["zigzag_lados"]
+        # [doc] la fórmula (12/13 piezas por vano, x2 lados) está calibrada
+        # para los vanos de referencia del documento (ventana 90x90,
+        # puerta 215x90). Si el proyecto real tiene vanos más grandes,
+        # `Geometria.factor_escala_ventana/puerta` escala la cantidad en
+        # proporción al perímetro del vano -- una extrapolación razonable
+        # ([supuesto], no una fórmula documentada para tamaño arbitrario),
+        # que por defecto es 1.0 (sin vanos indicados = tamaño de referencia,
+        # comportamiento idéntico al anterior).
+        piezas_zigzag_base = (
+            g.n_ventanas * mallas["zigzag_piezas_por_ventana"] * g.factor_escala_ventana
+            + g.n_puertas_total * mallas["zigzag_piezas_por_puerta"] * g.factor_escala_puerta
+        )
+        piezas_zigzag = piezas_zigzag_base * mallas["zigzag_lados"]
 
         piezas_esquinera = math.ceil(
             g.esquinas_efectivas * g.altura_efectiva_m * g.niveles
@@ -261,11 +270,19 @@ class MotorQTO:
 
         partidas += [
             Partida("Muros", "Malla zigzag en vanos",
-                    f"{g.n_ventanas} ventanas x 12 pzas + {g.n_puertas_total} puertas x 13 pzas, ambos lados. "
-                    f"Asume vanos de referencia (ventana 90x90 cm, puerta 215x90 cm); "
-                    f"vanos reales más grandes requieren más piezas.",
+                    (f"{g.n_ventanas} ventanas x 12 pzas + {g.n_puertas_total} puertas x 13 pzas, "
+                     f"ambos lados. Calibrado para vanos de referencia (ventana 90x90 cm, "
+                     f"puerta 215x90 cm)"
+                     + (f"; ESCALADO a ventana real {g.ancho_ventana_m:.2f}x{g.alto_ventana_m:.2f} m "
+                        f"(factor {g.factor_escala_ventana:.2f}x, extrapolación por perímetro, "
+                        f"no una fórmula documentada)"
+                        if g.factor_escala_ventana != 1.0 else "")
+                     + (f"; ESCALADO a puerta real {g.ancho_puerta_m:.2f}x{g.alto_puerta_m:.2f} m "
+                        f"(factor {g.factor_escala_puerta:.2f}x)"
+                        if g.factor_escala_puerta != 1.0 else "")),
                     "pza", piezas_zigzag, self._desp("mallas"),
-                    "Malla_zigzag_pieza", self._precio("Malla_zigzag_pieza")),
+                    "Malla_zigzag_pieza", self._precio("Malla_zigzag_pieza"),
+                    "[doc]" if g.factor_escala_ventana == g.factor_escala_puerta == 1.0 else "[supuesto]"),
             Partida("Muros", "Malla esquinera",
                     f"({g.esquinas_efectivas} esquinas x {g.altura_efectiva_m} m) / 2.40 m",
                     "pza", piezas_esquinera, self._desp("mallas"),
@@ -284,7 +301,11 @@ class MotorQTO:
         partidas.append(
             Partida("Muros", "Anclas / bastones 3/8\"",
                     f"{n_anclas} anclas (3 por panel, cada {anclaje['separacion_m']*100:.0f} cm), "
-                    f"5 cm dentro de cimentación (longitud total de ancla: supuesto)",
+                    f"5 cm dentro de cimentación (longitud total de ancla: supuesto). "
+                    f"⚠️ El manual oficial de instalación del fabricante describe barras "
+                    f"de arranque a 30 cm con 40-50 cm de empotramiento -- posible refuerzo "
+                    f"ADICIONAL no incluido aquí. Ver data/parametros_tecnicos.yaml::anclaje "
+                    f"para el conflicto sin resolver; confirmar con ingeniero estructural.",
                     "kg", kg_anclas, self._desp("acero"),
                     "Acero_Varilla", self._precio("Acero_Varilla"), "[supuesto]")
         )

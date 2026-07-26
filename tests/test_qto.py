@@ -391,3 +391,63 @@ def test_malla_zigzag_advierte_sobre_el_tamano_de_vano_asumido():
     motor = MotorQTO(geo())
     zigzag = next(p for p in motor.partidas() if p.partida == "Malla zigzag en vanos")
     assert "90x90" in zigzag.detalle or "referencia" in zigzag.detalle.lower()
+
+
+# ===========================================================================
+# Dimensiones reales de vano (continuación de la revisión de precisión)
+# ===========================================================================
+
+def test_vanos_de_tamano_por_defecto_no_cambian_el_comportamiento_anterior():
+    """
+    Sin dimensiones de vano indicadas, el resultado debe ser IDÉNTICO al que
+    daba la fórmula original (factor de escala 1.0, vano de referencia).
+    """
+    g = geo()
+    assert g.factor_escala_ventana == 1.0
+    assert g.factor_escala_puerta == 1.0
+
+
+def test_ventanas_reales_mas_grandes_aumentan_la_malla_zigzag():
+    """
+    Bug potencial: la fórmula (12/13 piezas) está calibrada para vanos de
+    90x90/215x90 cm. Una ventana típica dominicana de 1.5x1.2 m es bastante
+    más grande; la malla debía quedarse corta en silencio.
+    """
+    referencia = MotorQTO(geo())
+    grande = MotorQTO(geo(ancho_ventana_m=1.5, alto_ventana_m=1.2))
+
+    zz_ref = next(p for p in referencia.partidas() if p.partida == "Malla zigzag en vanos")
+    zz_grande = next(p for p in grande.partidas() if p.partida == "Malla zigzag en vanos")
+
+    assert zz_grande.cantidad_neta > zz_ref.cantidad_neta
+    assert zz_grande.fuente == "[supuesto]"  # ya no es la fórmula literal del doc
+    assert zz_ref.fuente == "[doc]"          # con el default, sigue siendo la fórmula exacta
+
+
+def test_factor_de_escala_es_proporcional_al_perimetro_del_vano():
+    """El factor de escala debe ser el cociente de perímetros, no de áreas."""
+    g = geo(ancho_ventana_m=1.8, alto_ventana_m=1.8)  # el doble en cada lado
+    perimetro_ref = 2 * (0.90 + 0.90)
+    perimetro_real = 2 * (1.8 + 1.8)
+    assert g.factor_escala_ventana == pytest.approx(perimetro_real / perimetro_ref)
+
+
+# ===========================================================================
+# Conflicto de anclaje documentado (no resuelto por diseño)
+# ===========================================================================
+
+def test_el_conflicto_de_anclaje_esta_documentado_y_visible():
+    """
+    El manual oficial de instalación del fabricante describe barras de
+    arranque a 30 cm / 40-50 cm de empotramiento, mientras
+    BASE_TECNICA_EPS_ICF.md dice 40 cm / 5 cm -- una discrepancia de 8-10x
+    en un elemento de acero estructural. No se resolvió por adivinanza: debe
+    quedar visible tanto en los parámetros como en la partida que ve el
+    usuario.
+    """
+    motor = MotorQTO(geo())
+    anclas = next(p for p in motor.partidas() if "Anclas" in p.partida)
+    assert "manual oficial" in anclas.detalle.lower()
+    assert "40-50" in anclas.detalle
+
+    assert "fuente_conflicto_url" in P["anclaje"]

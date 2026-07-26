@@ -200,11 +200,33 @@ def pagina_presupuesto_detallado():
         lanzadora = st.checkbox("Aplanado con lanzadora neumática", value=False,
                                 help="60-70 m²/día frente a 15-20 m²/día manual")
 
+        with st.expander("🪟 Dimensiones reales de vanos", expanded=False):
+            st.caption(
+                "La malla zigzag está calibrada para ventanas de 90x90 cm y puertas "
+                "de 215x90 cm (docs/BASE_TECNICA_EPS_ICF.md). Si tus vanos son más "
+                "grandes, indícalo aquí -- si no, la malla se queda corta sin avisar."
+            )
+            col_v1, col_v2 = st.columns(2)
+            with col_v1:
+                ancho_ventana = st.number_input("Ancho de ventana (m)", min_value=0.3, max_value=4.0,
+                                                value=0.90, step=0.1)
+                ancho_puerta = st.number_input("Ancho de puerta (m)", min_value=0.5, max_value=2.5,
+                                               value=0.90, step=0.1)
+            with col_v2:
+                alto_ventana = st.number_input("Alto de ventana (m)", min_value=0.3, max_value=3.0,
+                                               value=0.90, step=0.1)
+                alto_puerta = st.number_input("Alto de puerta (m)", min_value=1.8, max_value=3.0,
+                                              value=2.15, step=0.05)
+
     geo = Geometria(
         area_m2=area,
         perimetro_m=perimetro or None,
         altura_muro_m=altura,
         niveles=int(niveles),
+        ancho_ventana_m=ancho_ventana,
+        alto_ventana_m=alto_ventana,
+        ancho_puerta_m=ancho_puerta,
+        alto_puerta_m=alto_puerta,
     )
     precios = st.session_state.get("precios_sincronizados") or Pricebook(
         os.path.join("data", "pricebook.json")

@@ -87,6 +87,13 @@ def pagina_visor_bim():
 
     # Coordenadas: (0..L, 0..W) y altura por nivel.
     total_h = altura_muro * niveles
+    # Espesor de muro para el visor 3D (solo visual, no afecta el
+    # presupuesto). 12 cm cae dentro del rango real de pared terminada
+    # MPanel (90-270 mm según espesor de EPS elegido, ver
+    # utils.fuentes.FICHA_ISOTEX_DOMINICANA) -- un valor representativo,
+    # no medido para este proyecto en particular. El motor QTO no rastrea
+    # espesor de EPS como variable, así que este visor no puede ser más
+    # preciso que "un valor típico dentro del rango real".
     wall_th = 0.12
     beam_th = 0.20
 

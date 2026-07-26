@@ -51,6 +51,17 @@ class Geometria:
     banos: int | None = None
     ml_cocina: float | None = None
 
+    # Dimensiones de vano. Por defecto usan los tamaños de referencia de
+    # docs/BASE_TECNICA_EPS_ICF.md sección 4 ("ventana 90x90 = 12 piezas;
+    # puerta 215x90 = 13 piezas"), sobre los que está calibrada la fórmula de
+    # malla zigzag. Si el proyecto real tiene vanos más grandes, indicarlo
+    # aquí evita que la malla se quede corta -- antes esto era un supuesto
+    # invisible sin manera de corregirlo por proyecto.
+    ancho_ventana_m: float = 0.90
+    alto_ventana_m: float = 0.90
+    ancho_puerta_m: float = 0.90
+    alto_puerta_m: float = 2.15
+
     parametros: dict[str, Any] = field(default_factory=cargar_parametros, repr=False)
 
     # -- validación ------------------------------------------------------
@@ -159,6 +170,32 @@ class Geometria:
     @property
     def n_puertas_total(self) -> int:
         return self.n_puertas_exteriores + self.n_puertas_interiores
+
+    # -- dimensiones de vano ----------------------------------------------
+    # Áreas y perímetros de referencia (los del documento) y reales (los del
+    # proyecto, si se indicaron). El cociente entre ambos es lo que permite
+    # escalar la malla zigzag sin inventar una fórmula nueva no documentada.
+    _REF_VENTANA_M = (0.90, 0.90)
+    _REF_PUERTA_M = (0.90, 2.15)
+
+    @property
+    def factor_escala_ventana(self) -> float:
+        """
+        >1 si las ventanas del proyecto son más grandes que el vano de
+        referencia del documento (90x90 cm); 1.0 si se usa el default.
+        """
+        ancho_ref, alto_ref = self._REF_VENTANA_M
+        perimetro_real = 2 * (self.ancho_ventana_m + self.alto_ventana_m)
+        perimetro_ref = 2 * (ancho_ref + alto_ref)
+        return perimetro_real / perimetro_ref
+
+    @property
+    def factor_escala_puerta(self) -> float:
+        """Análogo a `factor_escala_ventana`, para el vano de puerta (90x215 cm)."""
+        ancho_ref, alto_ref = self._REF_PUERTA_M
+        perimetro_real = 2 * (self.ancho_puerta_m + self.alto_puerta_m)
+        perimetro_ref = 2 * (ancho_ref + alto_ref)
+        return perimetro_real / perimetro_ref
 
     @property
     def n_banos(self) -> int:
