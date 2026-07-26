@@ -219,7 +219,13 @@ class MotorQTO:
                     "m²", area, 0.10, "Polietileno_m2", self._precio("Polietileno_m2"),
                     "[supuesto]"),
             Partida("Cimentación", "Malla electrosoldada 10x10",
-                    f"Refuerzo de platea (traslape {(self.p['mallas']['electrosoldada_traslape']-1)*100:.0f}%)",
+                    (f"Refuerzo de platea, traslape "
+                     f"{(self.p['mallas']['electrosoldada_traslape']-1)*100:.0f}% "
+                     f"(40-60 cm entre paños, hoja 2.50x6.00 m -- verificado con "
+                     f"ejemplo numérico resuelto). No incluye el desperdicio adicional "
+                     f"por redondear a hojas completas contra el ancho/largo real de "
+                     f"la losa (puede ser sustancial; requiere geometría rectangular "
+                     f"explícita, no solo área total)."),
                     "m²", area * self.p["mallas"]["electrosoldada_traslape"],
                     self._desp("mallas"), "Malla_Electrosoldada",
                     self._precio("Malla_Electrosoldada"), "[supuesto]"),

@@ -210,8 +210,28 @@ mallas:
   union_lados: 2
   union_altura_umbral_m: 2.44              # [doc] video #37, motivo 3 (uniones horizontales)
   union_fraccion_paneles_cortados: 0.25    # [supuesto] combina motivos 1 y 2 (ver nota arriba)
-  # Malla electrosoldada 10x10 en cimentación
-  electrosoldada_traslape: 1.10           # [supuesto] 10% de traslape
+  # Malla electrosoldada 10x10 en cimentación.
+  #
+  # CORREGIDO (verificado con ejemplo numérico resuelto, NotebookLM del
+  # usuario): antes 1.10 (10% de traslape), un número sin fuente. El video
+  # da el traslape real recomendado (40-60 cm entre paños, "para máxima
+  # seguridad" del sistema monolítico) y un ejemplo resuelto con hoja
+  # estándar de 2.50x6.00 m:
+  #
+  #   factor_traslape = (2.50/(2.50-0.50)) x (6.00/(6.00-0.50)) = 1.364
+  #
+  # ⚠️ INCOMPLETO A PROPÓSITO: el ejemplo resuelto del usuario (losa de
+  # 10x12 m) da un sobrecosto TOTAL de 87.5%, no 36.4% -- la diferencia
+  # (51 puntos) es desperdicio por REDONDEAR a hojas completas contra las
+  # dimensiones específicas de esa losa (12 m / 5.50 m efectivos = 2.18 ->
+  # 3 hojas). Ese efecto depende del ancho y largo reales de la
+  # cimentación, que `Geometria` no rastrea por separado todavía (solo el
+  # área total) -- así que aquí solo se aplica el factor de traslape puro
+  # (1.364), generalizable sin conocer las dimensiones exactas. El
+  # desperdicio real por redondeo de hoja puede ser sustancialmente mayor
+  # y varía proyecto a proyecto; no se puede capturar con un solo número
+  # hasta que se agregue ancho/largo de cimentación a la geometría.
+  electrosoldada_traslape: 1.364
 
 # ---------------------------------------------------------------------------
 # Mano de obra

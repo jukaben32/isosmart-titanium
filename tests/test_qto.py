@@ -763,3 +763,30 @@ def test_desperdicio_de_panel_corroborado_por_dato_real():
         k for k in ("concreto", "mortero", "acero", "mallas", "acabados")
     }  # el panel nunca tuvo su propia clave de desperdicio porcentual
     assert p["desperdicios"].keys() == {"concreto", "mortero", "acero", "mallas", "acabados"}
+
+
+def test_traslape_malla_electrosoldada_corregido_con_ejemplo_resuelto():
+    """
+    Bug: electrosoldada_traslape=1.10 (10%) no tenía ninguna fuente. El
+    usuario aportó un ejemplo numérico resuelto (losa 10x12m, hoja
+    2.50x6.00m, traslape 50cm) que da un factor de traslape puro de 1.364
+    (36.4%) -- más de 3x el valor anterior.
+    """
+    assert P["mallas"]["electrosoldada_traslape"] == pytest.approx(1.364, abs=0.001)
+
+    # Verificación de la fórmula: hoja 2.50x6.00m, traslape 0.50m.
+    factor_esperado = (2.50 / (2.50 - 0.50)) * (6.00 / (6.00 - 0.50))
+    assert P["mallas"]["electrosoldada_traslape"] == pytest.approx(factor_esperado, abs=0.001)
+
+
+def test_electrosoldada_advierte_sobre_desperdicio_de_redondeo_no_incluido():
+    """
+    El ejemplo resuelto del usuario (losa 10x12m) da 87.5% de sobrecosto
+    total, no 36.4% -- la diferencia es desperdicio por redondear a hojas
+    completas contra las dimensiones específicas de esa losa, un efecto
+    que Geometria no puede capturar sin rastrear ancho/largo por separado
+    (solo tiene área total). Debe quedar advertido, no oculto.
+    """
+    motor = MotorQTO(geo())
+    electrosoldada = next(p for p in motor.partidas() if p.partida == "Malla electrosoldada 10x10")
+    assert "redondear a hojas completas" in electrosoldada.detalle
