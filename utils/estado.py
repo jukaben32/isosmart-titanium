@@ -87,6 +87,17 @@ class ProyectoState:
     origen_metricas: str = ""          # de dónde salieron las dimensiones
     avisos: list = field(default_factory=list)
 
+    # -- programa de ambientes --------------------------------------------
+    # Antes: Geometria SOLO podía estimar puertas/ventanas/baños por área
+    # (geometria_defecto.yaml, una fórmula genérica). Si un lead ya
+    # describió su casa ("3 dormitorios, 2 con baño"), eso es un dato real,
+    # no una estimación -- este bloque lo transporta hasta Geometria.
+    n_dormitorios: int | None = None
+    n_banos: int | None = None          # dormitorios_con_bano + banos_comunes
+    n_puertas_interiores: int | None = None
+    n_ventanas: int | None = None
+    habitaciones: list = field(default_factory=list)  # para el esquema de planta
+
     # ------------------------------------------------------------------
     # Validación
     # ------------------------------------------------------------------
@@ -227,6 +238,38 @@ class ProyectoState:
             except ValueError:
                 self.avisos.append(f"calidad no reconocida, se mantiene {self.calidad}")
 
+        # -- programa de ambientes (asistente Texto -> Diseño) ---------------
+        # Reemplaza estimaciones genéricas por conteos reales cuando el
+        # usuario ya los dio explícitamente en su descripción.
+        dormitorios = datos.get("dormitorios")
+        if dormitorios is not None:
+            self.n_dormitorios = int(dormitorios)
+            # Puertas interiores: una por dormitorio + una por baño privado,
+            # como mínimo -- sigue siendo una aproximación (no cuenta closets,
+            # pasillos, etc.) pero ya no depende del área sino del programa real.
+            self.n_puertas_interiores = int(dormitorios) + int(
+                datos.get("dormitorios_con_bano") or 0
+            )
+
+        dormitorios_con_bano = datos.get("dormitorios_con_bano") or 0
+        banos_comunes = datos.get("banos_comunes") or 0
+        if datos.get("dormitorios_con_bano") is not None or datos.get("banos_comunes") is not None:
+            self.n_banos = int(dormitorios_con_bano) + int(banos_comunes)
+
+        if datos.get("dormitorios") is not None:
+            # Una ventana por dormitorio + una por cada ambiente social
+            # declarado explícitamente (cocina/sala/comedor) -- aproximación
+            # razonable, mejor que "tantas por cada 100 m²" cuando ya
+            # sabemos qué ambientes existen.
+            ventanas = int(dormitorios)
+            for clave in ("tiene_cocina", "tiene_sala_estar", "tiene_comedor"):
+                if datos.get(clave):
+                    ventanas += 1
+            self.n_ventanas = ventanas
+
+        if isinstance(datos.get("habitaciones"), list) and datos["habitaciones"]:
+            self.habitaciones = datos["habitaciones"]
+
         if origen:
             self.origen_metricas = origen
         return self.sanear()
@@ -241,6 +284,9 @@ class ProyectoState:
             perimetro_m=self.perimetro_m,
             altura_muro_m=self.altura_muro_m,
             niveles=self.niveles,
+            banos=self.n_banos,
+            puertas_interiores=self.n_puertas_interiores,
+            ventanas=self.n_ventanas,
         )
 
     def a_dict(self) -> dict[str, Any]:

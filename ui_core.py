@@ -11,6 +11,9 @@ import streamlit as st
 from utils.ai_media import generate_facade_image_fal, generate_video_luma
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
 from utils.estado import ProyectoState
+from utils.floor_plan import generar_esquema_svg
+from utils.pricebook import DEFAULT_PRICEBOOK
+from utils.qto import MotorQTO
 from utils.repositorio import RepositorioSQLite, obtener_repositorio
 
 # ---------------------------------------------------------------------------
@@ -159,32 +162,52 @@ def init_text_design_state():
 
 def render_text_design_assistant(context_key: str):
     """
-    Renderiza el asistente de texto libre.
+    Asistente Texto -> Diseño: convierte una descripción libre en un
+    presupuesto real y un esquema de planta, y captura el lead.
 
-    El asistente solo prellena parámetros; no modifica las fórmulas de cálculo.
+    REESCRITO (2026-07-26): antes solo extraía dimensiones agregadas (área,
+    perímetro) y generaba un render de fachada -- útil como imagen bonita,
+    pero no era lo que un lead pide cuando describe "3 dormitorios, 2 con
+    baño": quiere ver cómo se distribuye eso y cuánto cuesta, no una foto
+    de la fachada.
+
+    Ahora:
+      1. Gemini extrae el PROGRAMA DE AMBIENTES (dormitorios, baños, cocina,
+         marquesina...), no solo área/perímetro -- ver utils/ai_text_design.py.
+      2. Ese programa alimenta ProyectoState -> Geometria con conteos reales
+         (banos, puertas, ventanas), reemplazando la estimación genérica por
+         área que usa el resto de la app cuando no hay mejor dato.
+      3. Se corre el motor QTO real (el mismo que usa el resto de la app,
+         no un cálculo aparte) y se muestra un presupuesto de verdad.
+      4. Se dibuja un ESQUEMA de planta (utils/floor_plan.py) -- un diagrama
+         de bloques proporcional, etiquetado como lo que es, no una imagen
+         generada que finge ser un plano arquitectónico.
+      5. El render de fachada (Fal.ai) y el video (Luma) siguen disponibles,
+         pero como una impresión artística OPCIONAL y claramente marcada
+         como tal -- no son la fuente de ningún dato del presupuesto.
+      6. Se ofrece capturar el lead (nombre + contacto) justo después de
+         ver su presupuesto -- el momento de mayor interés.
     """
     init_text_design_state()
     api_key_default = get_gemini_api_key_from_config()
-    fal_key_default = get_fal_key_from_config()
-    luma_key_default = get_luma_key_from_config()
 
-    with st.expander("✨ ¿No tienes planos? Diseña el concepto con IA", expanded=False):
-        st.caption("Describe la vivienda y la IA estimará parámetros editables para el presupuesto, además de generar un render 3D y video si provees las claves de Fal y Luma.")
+    with st.expander("✨ ¿No tienes planos? Describe tu idea y te cotizamos", expanded=False):
+        st.caption(
+            "Describe la vivienda que imaginas -- cuántos dormitorios, baños, si "
+            "quieres marquesina, terraza, etc. Generamos un presupuesto real y un "
+            "esquema de cómo se distribuiría."
+        )
         descripcion = st.text_area(
             "Describe tu idea de vivienda",
-            placeholder="Ej: Casa moderna de 2 niveles en Samaná, 3 habitaciones, terraza, ventanales amplios...",
+            placeholder="Ej: Casa de 2 niveles, 3 dormitorios (2 con baño), cocina, "
+                       "sala, comedor, terraza con lavadero, marquesina para 2 carros...",
             key=f"text_design_desc_{context_key}",
         )
-        
-        col_keys1, col_keys2, col_keys3 = st.columns(3)
-        with col_keys1:
-            api_key = st.text_input("Gemini API Key (Requerido)", value=api_key_default, type="password", key=f"text_design_api_key_{context_key}")
-        with col_keys2:
-            fal_key = st.text_input("Fal.ai Key (Para Imagen)", value=fal_key_default, type="password", key=f"text_design_fal_key_{context_key}")
-        with col_keys3:
-            luma_key = st.text_input("Luma AI Key (Para Video)", value=luma_key_default, type="password", key=f"text_design_luma_key_{context_key}")
+        api_key = st.text_input("Gemini API Key", value=api_key_default, type="password",
+                                key=f"text_design_api_key_{context_key}")
 
-        if st.button("Generar Concepto y Medios Visuales", key=f"text_design_btn_{context_key}", use_container_width=True):
+        if st.button("🏠 Generar Presupuesto y Esquema", key=f"text_design_btn_{context_key}",
+                     use_container_width=True, type="primary"):
             if not descripcion.strip():
                 st.warning("Escribe una descripción corta de la vivienda.")
                 return
@@ -192,11 +215,10 @@ def render_text_design_assistant(context_key: str):
                 st.warning("Configura tu Gemini API Key en Streamlit Secrets o pégala aquí.")
                 return
 
-            # 1. Extraer dimensiones con Gemini
             try:
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel("gemini-1.5-flash")
-                with st.spinner("🧠 Interpretando tu idea y calculando dimensiones..."):
+                with st.spinner("🧠 Interpretando tu idea..."):
                     params, raw = analyze_text_design_with_gemini(model, descripcion)
                 st.session_state["text_design_raw"] = raw
             except Exception as e:
@@ -207,55 +229,122 @@ def render_text_design_assistant(context_key: str):
                 st.warning("La IA no devolvió un JSON confiable. Ajusta la descripción e intenta otra vez.")
                 return
 
-            # Actualizar estado para la app
+            # Antes: escritura directa de claves plan_* sueltas. Ahora pasa
+            # por ProyectoState, la única fuente de verdad (Fase 2) -- así
+            # el programa de ambientes (baños, puertas, ventanas reales)
+            # llega hasta Geometria, no solo el área.
+            estado = ProyectoState.cargar()
+            estado.aplicar_metricas(params, origen="Texto → Diseño (IA)")
+            estado.guardar()
+
             st.session_state["text_design_params"] = params
-            st.session_state["calc_area_m2"] = float(params["area_m2"])
-            st.session_state["plan_area_m2"] = float(params["area_m2"])
-            st.session_state["plan_niveles"] = int(params["niveles"])
-            st.session_state["plan_perimetro_m"] = float(params["perimetro_m"])
-            st.session_state["plan_altura_muro_m"] = float(params["altura_muro_m"])
-            st.session_state["plan_espesor_muro_m"] = float(params["espesor_muro_m"])
-            st.session_state["calidad_terminados"] = params.get("calidad_terminados", "media")
-            st.session_state["plan_params"] = {
-                "area_m2": params["area_m2"],
-                "niveles": params["niveles"],
-                "perimetro_m": params["perimetro_m"],
-                "altura_muro_m": params["altura_muro_m"],
-                "espesor_muro_m": params["espesor_muro_m"],
-                "calidad_terminados": params.get("calidad_terminados", "media"),
-                "observaciones": params.get("observaciones", ""),
-            }
-            
-            # 2. Generar Imagen con Fal.ai
-            if fal_key:
-                with st.spinner("🖼️ Generando render de fachada fotorrealista..."):
-                    image_url = generate_facade_image_fal(descripcion, fal_key)
+            st.session_state["descripcion_lead"] = descripcion
+            st.success("¡Listo! Revisa tu presupuesto y el esquema a continuación.")
+
+    # -- resultados: fuera del expander para que no se colapsen -----------
+    estado = ProyectoState.cargar()
+    params = st.session_state.get("text_design_params")
+    if not params:
+        return
+
+    st.subheader("📋 Tu proyecto")
+    if estado.avisos:
+        for aviso in estado.avisos:
+            st.caption(f"⚠️ {aviso}")
+
+    try:
+        geo = estado.geometria()
+        precios = st.session_state.get("precios_sincronizados") or DEFAULT_PRICEBOOK
+        motor = MotorQTO(geo, precios, calidad=estado.calidad)
+    except (KeyError, ValueError) as e:
+        st.error(f"No se pudo calcular el presupuesto: {e}")
+        return
+
+    col_r1, col_r2, col_r3 = st.columns(3)
+    col_r1.metric("Área estimada", f"{geo.area_m2:,.0f} m²")
+    col_r2.metric("Presupuesto estimado", f"RD$ {motor.total():,.0f}")
+    col_r3.metric("Costo por m²", f"RD$ {motor.costo_m2():,.0f}")
+    st.caption(
+        "Calculado con el mismo motor de cantidades que el resto de la app "
+        "(utils/qto.py) -- no es una cifra genérica ni un promedio de mercado."
+    )
+
+    if params.get("habitaciones"):
+        st.markdown("#### 🗺️ Esquema de distribución")
+        svg = generar_esquema_svg(params["habitaciones"], area_total_m2=geo.area_m2)
+        st.markdown(svg, unsafe_allow_html=True)
+
+    # -- fachada/video: opcional, claramente aparte del presupuesto -------
+    with st.expander("🎨 Ver una impresión artística de la fachada (opcional)", expanded=False):
+        st.caption(
+            "⚠️ Esta imagen es generada por IA como referencia visual -- NO "
+            "representa el diseño final ni afecta el presupuesto de arriba, "
+            "que se calcula con el motor de cantidades real."
+        )
+        fal_key_default = get_fal_key_from_config()
+        luma_key_default = get_luma_key_from_config()
+        col_keys1, col_keys2 = st.columns(2)
+        with col_keys1:
+            fal_key = st.text_input("Fal.ai Key", value=fal_key_default, type="password",
+                                    key=f"text_design_fal_key_{context_key}")
+        with col_keys2:
+            luma_key = st.text_input("Luma AI Key", value=luma_key_default, type="password",
+                                     key=f"text_design_luma_key_{context_key}")
+        if st.button("Generar imagen y video", key=f"text_design_media_btn_{context_key}"):
+            descripcion_previa = st.session_state.get("descripcion_lead", "")
+            if fal_key and descripcion_previa:
+                with st.spinner("🖼️ Generando render de fachada..."):
+                    image_url = generate_facade_image_fal(descripcion_previa, fal_key)
                     if image_url:
                         st.session_state["url_imagen"] = image_url
-                        
-                        # 3. Generar Video con Luma si hay imagen y llave de Luma
                         if luma_key:
-                            with st.spinner("🎥 Generando recorrido virtual en video (puede tomar un par de minutos)..."):
-                                video_url = generate_video_luma(image_url, descripcion, luma_key)
+                            with st.spinner("🎥 Generando video (puede tomar un par de minutos)..."):
+                                video_url = generate_video_luma(image_url, descripcion_previa, luma_key)
                                 if video_url:
                                     st.session_state["url_video"] = video_url
-                                else:
-                                    st.warning("No se pudo generar el video cinematográfico.")
                     else:
                         st.warning("No se pudo generar el render de fachada.")
+            else:
+                st.warning("Falta la Fal.ai Key o la descripción original.")
 
-            st.success("¡Concepto generado con éxito! Revisa los resultados a continuación.")
+        if st.session_state.get("url_imagen"):
+            st.image(st.session_state["url_imagen"], caption="Impresión artística (no final)",
+                     use_container_width=True)
+        if st.session_state.get("url_video"):
+            st.video(st.session_state["url_video"])
 
-    # Mostrar medios generados fuera del expander
-    if st.session_state.get("url_imagen") or st.session_state.get("url_video"):
-        st.subheader("✨ Visualización del Concepto IA")
-        col_media1, col_media2 = st.columns(2)
-        with col_media1:
-            if st.session_state.get("url_imagen"):
-                st.image(st.session_state["url_imagen"], caption="Render de Fachada (Fal.ai)", use_column_width=True)
-        with col_media2:
-            if st.session_state.get("url_video"):
-                st.video(st.session_state["url_video"])
+    # -- captura de lead: el momento de mayor interés ----------------------
+    st.divider()
+    st.markdown("#### 📞 ¿Te interesa este presupuesto? Déjanos tus datos")
+    with st.form(f"lead_text_design_{context_key}", clear_on_submit=True):
+        col_l1, col_l2 = st.columns(2)
+        with col_l1:
+            nombre = st.text_input("Nombre completo *")
+            telefono = st.text_input("Teléfono")
+        with col_l2:
+            email = st.text_input("Email *")
+            ubicacion = st.selectbox(
+                "Ubicación del proyecto",
+                ["Santo Domingo", "Santiago", "Punta Cana", "La Romana",
+                 "Puerto Plata", "San Pedro", "La Vega", "Otro"],
+            )
+        if st.form_submit_button("Solicitar cotización formal", use_container_width=True, type="primary"):
+            if nombre and email:
+                ProjectManager().save_lead({
+                    "nombre": nombre,
+                    "email": email,
+                    "telefono": telefono,
+                    "ubicacion": ubicacion,
+                    "tipo_proyecto": "Vivienda Unifamiliar",
+                    "area_estimada": geo.area_m2,
+                    "mensaje": (
+                        f"[Generado con asistente IA] {st.session_state.get('descripcion_lead', '')} "
+                        f"-- Presupuesto estimado: RD$ {motor.total():,.0f}"
+                    ),
+                })
+                st.success("✅ ¡Gracias! Un asesor se pondrá en contacto pronto con tu cotización formal.")
+            else:
+                st.error("❌ Completa al menos nombre y email.")
 
 
 def estimate_build_time_days(area_m2: float, productividad_m2_dia: float, min_days: float = 1.0) -> float:

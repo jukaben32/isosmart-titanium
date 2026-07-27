@@ -150,3 +150,47 @@ def test_solo_el_crm_queda_como_pagina_independiente():
 
     archivos = [f for f in os.listdir("pages") if f.endswith(".py")]
     assert archivos == ["3_Admin_Leads.py"], archivos
+
+
+# ===========================================================================
+# Programa de ambientes -> geometría real (asistente Texto -> Diseño)
+# ===========================================================================
+
+def test_programa_de_ambientes_reemplaza_estimacion_generica():
+    """
+    Antes: Geometria SOLO podía estimar baños/puertas/ventanas por área
+    (fórmula genérica de geometria_defecto.yaml). Si el lead ya dijo
+    '3 dormitorios, 2 con baño', eso es un dato real, no una estimación.
+    """
+    estado = ProyectoState()
+    estado.aplicar_metricas({
+        "dormitorios": 3, "dormitorios_con_bano": 2, "banos_comunes": 1,
+        "tiene_cocina": True, "tiene_sala_estar": True,
+    }, origen="Texto → Diseño (IA)")
+
+    assert estado.n_dormitorios == 3
+    assert estado.n_banos == 3          # 2 privados + 1 común
+    assert estado.n_puertas_interiores == 5  # 3 dormitorios + 2 con baño
+
+    geo = estado.geometria()
+    assert geo.n_banos == 3             # ya no la estimación por área
+    assert geo.n_puertas_interiores == 5
+
+
+def test_sin_programa_de_ambientes_geometria_sigue_estimando_por_area():
+    """Retrocompatibilidad: sin programa de ambientes, Geometria sigue estimando como antes."""
+    estado = ProyectoState(area_m2=120)
+    estado.aplicar_metricas({"area_m2": 120}, origen="manual")
+
+    geo = estado.geometria()
+    assert geo.banos is None            # sin override explícito
+    assert geo.n_banos > 0              # pero la estimación por área sigue funcionando
+
+
+def test_habitaciones_se_guardan_para_el_esquema_de_planta():
+    estado = ProyectoState()
+    estado.aplicar_metricas({
+        "habitaciones": [{"tipo": "dormitorio", "nombre": "Dormitorio 1", "area_aprox_m2": 14}],
+    }, origen="Texto → Diseño (IA)")
+    assert len(estado.habitaciones) == 1
+    assert estado.habitaciones[0]["nombre"] == "Dormitorio 1"

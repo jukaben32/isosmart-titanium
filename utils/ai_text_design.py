@@ -15,6 +15,28 @@ DEFAULT_TEXT_DESIGN_PARAMS: dict[str, Any] = {
     "calidad_terminados": "media",
     "estilo_arquitectura": "",
     "observaciones": "",
+    # -- programa de ambientes (para presupuesto de leads con IA) --------
+    # Antes: solo dimensiones agregadas (área, perímetro). El motor de
+    # cálculo estimaba puertas/ventanas/baños por área con una fórmula
+    # genérica (geometria_defecto.yaml). Si el usuario ya describió su
+    # programa ("3 dormitorios, 2 con baño"), eso deja de ser una
+    # estimación y se convierte en un conteo real -- ver
+    # utils/geometria.py (banos, puertas_interiores son overrides
+    # opcionales, ya existían, pero nada los alimentaba desde aquí).
+    "dormitorios": None,              # int | None
+    "dormitorios_con_bano": None,     # int | None (subset de dormitorios)
+    "banos_comunes": None,            # int | None (además de los privados)
+    "tiene_cocina": True,
+    "tiene_sala_estar": True,
+    "tiene_comedor": False,
+    "tiene_terraza_lavadero": False,
+    "marquesina_autos": 0,            # 0 = sin marquesina
+    "ambientes_adicionales": [],      # lista de strings: "estudio", "walk-in closet"...
+    # Lista de ambientes con área aproximada, para el ESQUEMA de planta
+    # (utils/floor_plan.py). El área aquí es solo para las PROPORCIONES
+    # relativas del dibujo -- el presupuesto real usa la geometría de
+    # MotorQTO, no estas cifras.
+    "habitaciones": [],  # [{"tipo": str, "nombre": str, "area_aprox_m2": float}, ...]
 }
 
 
@@ -122,6 +144,49 @@ def parse_text_design_response(raw_text: str) -> dict[str, Any] | None:
 
     params["observaciones"] = str(data.get("observaciones") or data.get("notas") or "").strip()
 
+    # -- programa de ambientes --------------------------------------------
+    def _int_opcional(valor: Any) -> int | None:
+        try:
+            n = int(round(float(valor)))
+            return max(0, n) if n >= 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    params["dormitorios"] = _int_opcional(data.get("dormitorios"))
+    params["dormitorios_con_bano"] = _int_opcional(data.get("dormitorios_con_bano"))
+    # Coherencia: no puede haber más dormitorios con baño que dormitorios totales.
+    if params["dormitorios"] is not None and params["dormitorios_con_bano"] is not None:
+        if params["dormitorios_con_bano"] > params["dormitorios"]:
+            params["dormitorios_con_bano"] = params["dormitorios"]
+
+    params["banos_comunes"] = _int_opcional(data.get("banos_comunes"))
+    params["tiene_cocina"] = bool(data.get("tiene_cocina", True))
+    params["tiene_sala_estar"] = bool(data.get("tiene_sala_estar", True))
+    params["tiene_comedor"] = bool(data.get("tiene_comedor", False))
+    params["tiene_terraza_lavadero"] = bool(data.get("tiene_terraza_lavadero", False))
+    params["marquesina_autos"] = max(0, _to_int(data.get("marquesina_autos"), 0))
+
+    adicionales = data.get("ambientes_adicionales")
+    params["ambientes_adicionales"] = (
+        [str(a).strip() for a in adicionales if str(a).strip()]
+        if isinstance(adicionales, list) else []
+    )
+
+    habitaciones = data.get("habitaciones")
+    params["habitaciones"] = []
+    if isinstance(habitaciones, list):
+        for h in habitaciones:
+            if not isinstance(h, dict):
+                continue
+            tipo = str(h.get("tipo") or "otro").strip().lower()
+            nombre = str(h.get("nombre") or tipo or "Ambiente").strip()
+            area_aprox = _to_float(h.get("area_aprox_m2"), 9.0)
+            params["habitaciones"].append({
+                "tipo": tipo,
+                "nombre": nombre,
+                "area_aprox_m2": round(_clamp(area_aprox or 9.0, 2.0, 200.0), 1),
+            })
+
     return params
 
 
@@ -140,6 +205,14 @@ siguiendo estas reglas de negocio dominicanas:
 - Si describe marquesinas dobles, estar familiar o 2.5 baños, clasifica como "media".
 - Si describe cocinas frías/calientes, terrazas extensas, habitaciones con baños independientes o ubicaciones premium (Samaná, zonas turísticas de alta gama), clasifica como "alta" o "lujo".
 
+Además del área total, identifica el PROGRAMA DE AMBIENTES explícito que describe el cliente: cuántos dormitorios,
+cuántos tienen baño privado, si hay baños comunes adicionales, cocina, sala, comedor, terraza/lavadero, marquesina
+(número de vehículos) y cualquier ambiente adicional mencionado (estudio, walk-in closet, etc.).
+
+También genera una lista "habitaciones": un ambiente por cada espacio identificado (cada dormitorio por separado,
+cada baño, cocina, sala, comedor, terraza/lavadero, marquesina), con un área aproximada en m² razonable para
+vivienda residencial dominicana. Esta área es solo para dibujar un ESQUEMA proporcional, no necesita ser exacta.
+
 El JSON de salida debe tener obligatoriamente esta estructura:
 {{
   "area_m2": float,
@@ -149,7 +222,20 @@ El JSON de salida debe tener obligatoriamente esta estructura:
   "espesor_muro_m": float,
   "calidad_terminados": "economica" | "media" | "alta" | "lujo",
   "estilo_arquitectura": string,
-  "observaciones": string
+  "observaciones": string,
+  "dormitorios": int,
+  "dormitorios_con_bano": int,
+  "banos_comunes": int,
+  "tiene_cocina": bool,
+  "tiene_sala_estar": bool,
+  "tiene_comedor": bool,
+  "tiene_terraza_lavadero": bool,
+  "marquesina_autos": int,
+  "ambientes_adicionales": [string],
+  "habitaciones": [
+    {{"tipo": "dormitorio" | "bano" | "cocina" | "sala" | "comedor" | "terraza_lavadero" | "marquesina" | "otro",
+      "nombre": string, "area_aprox_m2": float}}
+  ]
 }}
 
 Reglas adicionales:
@@ -159,6 +245,9 @@ Reglas adicionales:
 - niveles debe estar entre 1 y 20.
 - altura_muro_m normalmente debe estar entre 2.6 y 3.2.
 - espesor_muro_m normalmente debe estar entre 0.10 y 0.15.
+- dormitorios_con_bano nunca puede ser mayor que dormitorios.
+- Si el cliente no menciona un ambiente (ej. comedor), asume que no lo pidió explícitamente
+  (tiene_comedor=false), no lo inventes solo porque "es común" en una casa.
 - Usa observaciones para explicar supuestos importantes en una frase corta.
 
 Responde SOLO un JSON válido, sin texto antes ni después y sin bloques de código.
