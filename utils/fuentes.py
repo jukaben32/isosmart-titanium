@@ -124,25 +124,45 @@ def convertir_mxn_a_dop(monto_mxn: float) -> float:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Sistema de techo: hallazgo pendiente de decisión
+# Sistemas de techo Isotex Dominicana — implementados (2026-07-26)
 # ---------------------------------------------------------------------------
-# Verificado por web fetch (isotexdominicana.com/techos/, 2026-07-26): el
-# proveedor real del usuario en RD no vende "Qualylosa" (terminología de
-# Covintec México, de donde viene BASE_TECNICA_EPS_ICF.md). Su línea de
-# techos es TERMOPANEL® (sándwich acero-EPS-acero, prefabricado, sin
-# concreto) o ISOLOSA® (EPS + perfil metálico, concreto colado encima).
-#
-# NO se modeló un selector de tipo de techo con porcentajes de diferencia
-# sin cotizaciones/fichas reales de estos dos productos -- inventar un
-# porcentaje de ajuste sería repetir el mismo error que esta auditoría
-# viene corrigiendo. Ver utils/qto.py::LIMITACIONES_CONOCIDAS.
+# El usuario confirmó: Isotex Dominicana será su único proveedor. Verificado
+# por web fetch a isotexdominicana.com, secciones Techos y Losas completas.
+FICHA_TERMOPANEL = Fuente(
+    valor="Ancho 1.00 m, espesor 7-10 cm, pendiente mínima 6%",
+    tipo="referencia",
+    cita="Manual técnico Termopanel® (panel sándwich acero-EPS-acero, "
+         "prefabricado, sin concreto colado). Requiere estructura de "
+         "soporte y pendiente mínima -- no es un techo plano.",
+    url="https://isotexdominicana.com/wp-content/uploads/2018/09/TERMOPANEL.pdf",
+)
+FICHA_ISOLOSA = Fuente(
+    valor="Losa nervada, módulo 0.60 m, malla electrosoldada",
+    tipo="referencia",
+    cita="Ficha técnica Isolosa® (EPS + perfil metálico como encofrado, "
+         "concreto colado en los nervios). Tabla de espesores no "
+         "disponible completa todavía.",
+    url="https://isotexdominicana.com/wp-content/uploads/2018/09/ISOLOSA-2.pdf",
+)
+FICHA_ISOFILL = Fuente(
+    valor="Bovedilla EPS, reduce 20-30% el concreto",
+    tipo="referencia",
+    cita="Isofill® (bovedilla EPS bajo losa reticular). Al menos una "
+         "variante conocida de 17 cm de espesor.",
+    url="https://isotexdominicana.com/losas/isofill/",
+)
+
+# Ninguno de los cuatro sistemas (Termopanel/Termolosa/Isolosa/Isofill) tiene
+# precio público -- verificado con búsqueda web, ni el fabricante ni la
+# competencia dominicana lo publican (todos cotizan bajo pedido). Ver
+# utils/pricebook.py::PRECIOS_SIN_COTIZAR y utils/qto.py::LIMITACIONES_CONOCIDAS.
 FUENTE_SISTEMA_TECHO_PENDIENTE = Fuente(
-    valor="TERMOPANEL® / ISOLOSA® (isotexdominicana.com)",
+    valor="",
     tipo="no_disponible",
-    cita="El motor asume un sistema tipo Qualylosa (Covintec México) que "
-         "el proveedor real del usuario no vende. Pendiente decidir qué "
-         "sistema modelar con datos reales antes de presupuestar el techo "
-         "con precisión.",
+    cita="Ningún sistema de techo real de Isotex Dominicana tiene precio "
+         "público. El motor los modela con la cantidad correcta (m² de "
+         "techo) pero el precio queda en RD$0.00 hasta que el usuario "
+         "obtenga la cotización real por m² instalado.",
 )
 
 

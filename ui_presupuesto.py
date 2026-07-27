@@ -210,6 +210,27 @@ def pagina_presupuesto_detallado():
         lanzadora = st.checkbox("Aplanado con lanzadora neumática", value=False,
                                 help="60-70 m²/día frente a 15-20 m²/día manual")
 
+        sistema_techo_label = st.selectbox(
+            "Sistema de techo",
+            ["Genérico (panel + concreto, tipo Qualylosa)", "Termopanel®", "Termolosa®",
+             "Isolosa®", "Isofill® (bovedilla)"],
+            help="Termopanel/Termolosa/Isolosa/Isofill son productos reales de Isotex "
+                 "Dominicana, cotizados por m² instalado. NINGUNO tiene precio público "
+                 "todavía -- el total quedará incompleto hasta que actualices el precio."
+        )
+        sistema_techo = {
+            "Genérico (panel + concreto, tipo Qualylosa)": None,
+            "Termopanel®": "termopanel",
+            "Termolosa®": "termolosa",
+            "Isolosa®": "isolosa",
+            "Isofill® (bovedilla)": "isofill",
+        }[sistema_techo_label]
+        if sistema_techo:
+            st.caption(
+                f"⚠️ RD$0.00 hasta que actualices el precio de "
+                f"`Techo_{sistema_techo.capitalize()}_m2` con la cotización real."
+            )
+
         with st.expander("🪟 Dimensiones reales de vanos", expanded=False):
             st.caption(
                 "La malla zigzag está calibrada para ventanas de 90x90 cm y puertas "
@@ -245,13 +266,23 @@ def pagina_presupuesto_detallado():
 
     try:
         motor = MotorQTO(geo, precios, sistema=sistema, calidad=calidad,
-                         zona_riesgo=zona, aplanado_mecanizado=lanzadora)
+                         zona_riesgo=zona, aplanado_mecanizado=lanzadora,
+                         sistema_techo=sistema_techo)
         df = motor.presupuesto()
     except (KeyError, ValueError) as e:
         st.error(f"No se pudo calcular el presupuesto: {e}")
         return
 
     # -- métricas ---------------------------------------------------------
+    if sistema_techo and motor._precio(f"Techo_{sistema_techo.capitalize()}_m2") == 0.0:
+        st.error(
+            f"🔴 **Este presupuesto está INCOMPLETO**: el sistema de techo "
+            f"({sistema_techo_label}) no tiene precio cotizado (RD$0.00/m²). "
+            f"Actualiza `Techo_{sistema_techo.capitalize()}_m2` en el pricebook "
+            f"con la cotización real de Isotex Dominicana antes de entregar este "
+            f"presupuesto a un cliente."
+        )
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total", f"RD$ {motor.total():,.0f}")
     c2.metric("Costo por m²", f"RD$ {motor.costo_m2():,.0f}")

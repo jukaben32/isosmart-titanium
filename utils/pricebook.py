@@ -88,6 +88,26 @@ DEFAULT_PRICEBOOK: dict[str, float] = {
     "Impermeabilizante_azotea_m2": 750.00,
     "Cielo_raso_m2": 950.00,
     "MO_jornal_dia": 1800.00,
+
+    # -----------------------------------------------------------------
+    # Sistemas de techo Isotex Dominicana (proveedor único del usuario).
+    # Cotizados por m² INSTALADO (material + mano de obra + accesorios),
+    # como el usuario confirmó que los ha visto cotizar en la práctica --
+    # a diferencia de todo lo demás en este pricebook, no se descomponen
+    # en materiales sueltos.
+    #
+    # EN CERO A PROPÓSITO, no un placeholder inventado: ningún sistema
+    # tiene precio público (ni Isotex ni la competencia dominicana,
+    # verificado con búsqueda web). Usar un precio de un producto
+    # distinto habría arriesgado un orden de magnitud equivocado sin
+    # ninguna base real. El total de cualquier presupuesto que use uno
+    # de estos sistemas está INCOMPLETO hasta actualizar con la
+    # cotización real -- ver la advertencia en la partida y en
+    # LIMITACIONES_CONOCIDAS.
+    "Techo_Termopanel_m2": 0.0,
+    "Techo_Termolosa_m2": 0.0,
+    "Techo_Isolosa_m2": 0.0,
+    "Techo_Isofill_m2": 0.0,
 }
 
 # ---------------------------------------------------------------------------
@@ -103,6 +123,16 @@ PRECIOS_POR_VERIFICAR = frozenset({
     "Malla_union_pieza", "Polietileno_m2", "Instalacion_electrica_m2",
     "Instalacion_sanitaria_m2", "Puerta_exterior", "Impermeabilizante_azotea_m2",
     "Cielo_raso_m2", "MO_jornal_dia",
+})
+
+# Un escalón más fuerte que PRECIOS_POR_VERIFICAR: no son estimaciones de
+# ingeniería con un número plausible pendiente de ajustar, son literalmente
+# RD$0.00 porque no existe ningún precio público que citar. Un presupuesto
+# que use alguno de estos sistemas de techo está incompleto -- ver la
+# advertencia en utils/qto.py y LIMITACIONES_CONOCIDAS.
+PRECIOS_SIN_COTIZAR = frozenset({
+    "Techo_Termopanel_m2", "Techo_Termolosa_m2",
+    "Techo_Isolosa_m2", "Techo_Isofill_m2",
 })
 
 

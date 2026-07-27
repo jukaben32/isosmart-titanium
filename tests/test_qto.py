@@ -935,3 +935,116 @@ def test_mortero_se_compra_en_sacos_enteros():
     mortero = next(p for p in motor.partidas() if p.partida == "Mortero de revoque")
     assert mortero.cantidad_neta == int(mortero.cantidad_neta)  # es un entero
     assert "saco entero" in mortero.detalle.lower()
+
+
+# ===========================================================================
+# Sistemas de techo reales de Isotex Dominicana (2026-07-26)
+# ===========================================================================
+
+def test_sistema_techo_por_defecto_no_cambia_comportamiento():
+    """Sin especificar sistema_techo, el motor sigue siendo el genérico de siempre."""
+    generico_a = MotorQTO(geo())
+    generico_b = MotorQTO(geo(), sistema_techo=None)
+    assert generico_a.total() == generico_b.total()
+    assert generico_b.sistema_techo is None
+
+
+def test_sistema_techo_invalido_falla_ruidosamente():
+    with pytest.raises(ValueError):
+        MotorQTO(geo(), sistema_techo="algo_que_no_existe")
+
+
+@pytest.mark.parametrize("sistema", ["termopanel", "termolosa", "isolosa", "isofill"])
+def test_sistema_techo_reemplaza_panel_y_capa_de_compresion(sistema):
+    """
+    Con un sistema real seleccionado, la azotea es UNA sola línea "instalado
+    por m²" -- no la descomposición en Panel_Techo + capa de compresión del
+    modelo genérico (que no corresponde a ningún producto real del
+    proveedor único del usuario, Isotex Dominicana).
+    """
+    motor = MotorQTO(geo(), sistema_techo=sistema)
+    nombres = {p.partida for p in motor.partidas() if p.categoria == "Losa"}
+
+    esperado = f"Techo {sistema.capitalize()} (instalado)"
+    assert esperado in nombres
+    assert "Panel de losa" not in nombres  # sin entrepiso en este caso, no debe aparecer
+    assert "Capa de compresión (azotea)" not in nombres
+
+    techo = next(p for p in motor.partidas() if p.partida == esperado)
+    assert techo.cantidad_neta == geo().area_losa_azotea_m2
+    assert techo.clave_precio == f"Techo_{sistema.capitalize()}_m2"
+
+
+def test_sistema_techo_sin_cotizar_da_precio_cero_y_advierte():
+    """
+    Ningún sistema real tiene precio público -- el motor debe usar 0.0
+    explícito (no inventar un placeholder) y advertirlo en el detalle.
+    """
+    from utils.pricebook import DEFAULT_PRICEBOOK, PRECIOS_SIN_COTIZAR
+
+    motor = MotorQTO(geo(), DEFAULT_PRICEBOOK, sistema_techo="termopanel")
+    techo = next(p for p in motor.partidas() if p.partida == "Techo Termopanel (instalado)")
+
+    assert techo.precio_unitario == 0.0
+    assert techo.subtotal == 0.0
+    assert "SIN COTIZAR" in techo.detalle
+    assert "Techo_Termopanel_m2" in PRECIOS_SIN_COTIZAR
+
+
+def test_termopanel_advierte_sobre_pendiente_minima():
+    """Termopanel requiere 6% de pendiente mínima -- no es un techo plano."""
+    motor = MotorQTO(geo(), sistema_techo="termopanel")
+    techo = next(p for p in motor.partidas() if "Termopanel" in p.partida)
+    assert "pendiente mínima" in techo.detalle.lower()
+    assert "6%" in techo.detalle
+
+
+def test_sistema_techo_no_duplica_malla_esquinera_de_union():
+    """
+    La malla esquinera de unión muro-losa es específica del modelo genérico
+    (losa colada tipo Qualylosa). Con un sistema alternativo, cuyo precio
+    instalado ya cubre esa conexión, no debe calcularse -- evita doble conteo.
+    """
+    generico = MotorQTO(geo())
+    alternativo = MotorQTO(geo(), sistema_techo="isolosa")
+
+    interna_generico = next(p for p in generico.partidas() if p.partida == "Malla esquinera interna")
+    interna_alt = next(p for p in alternativo.partidas() if p.partida == "Malla esquinera interna")
+    assert interna_alt.cantidad_neta < interna_generico.cantidad_neta
+
+
+def test_sistema_techo_no_agrega_acero_generico_a_la_azotea():
+    """
+    El acero genérico de losa (6 kg/m²) es parte del modelo Qualylosa. Con
+    un sistema alternativo, ese refuerzo ya viene incluido en el precio
+    instalado -- no debe sumarse por separado para la azotea.
+    """
+    sin_entrepiso = geo(niveles=1)
+    generico = MotorQTO(sin_entrepiso)
+    alternativo = MotorQTO(sin_entrepiso, sistema_techo="termolosa")
+
+    acero_generico = [p for p in generico.partidas() if p.partida == "Acero de refuerzo en losa"]
+    acero_alt = [p for p in alternativo.partidas() if p.partida == "Acero de refuerzo en losa"]
+
+    assert acero_generico  # sí existe en el modelo genérico
+    assert not acero_alt   # no existe con sistema alternativo (sin entrepiso)
+
+
+def test_entrepiso_sigue_con_modelo_generico_aunque_la_azotea_use_isotex():
+    """El entrepiso (piso intermedio) sigue con el motor genérico -- solo la
+    azotea usa el sistema real, mientras no haya tabla completa de espesores."""
+    g = geo(area_m2=240, perimetro_m=44, niveles=2)  # 2 niveles -> hay entrepiso
+    motor = MotorQTO(g, sistema_techo="isolosa")
+
+    nombres = {p.partida for p in motor.partidas() if p.categoria == "Losa"}
+    assert "Techo Isolosa (instalado)" in nombres          # azotea: sistema real
+    assert "Panel de losa (entrepiso)" in nombres           # entrepiso: genérico
+    assert "Capa de compresión (entrepiso)" in nombres
+
+
+def test_fichas_de_isotex_dominicana_techo_tienen_fuente():
+    from utils.fuentes import FICHA_ISOFILL, FICHA_ISOLOSA, FICHA_TERMOPANEL
+
+    for ficha in (FICHA_TERMOPANEL, FICHA_ISOLOSA, FICHA_ISOFILL):
+        assert ficha.cita
+        assert ficha.tipo == "referencia"

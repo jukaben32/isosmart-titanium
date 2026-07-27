@@ -79,6 +79,65 @@ resistencias:
   cimentacion: 200
 
 # ---------------------------------------------------------------------------
+# Sistemas de techo/losa alternativos -- Isotex Dominicana (proveedor único)
+# ---------------------------------------------------------------------------
+# El usuario confirmó: Isotex Dominicana será su único proveedor, así que
+# los presupuestos deben usar los productos reales de su catálogo, no el
+# genérico "Panel_Techo + capa de compresión" tipo Qualylosa (Covintec
+# México) que se usaba por defecto.
+#
+# Verificado por web fetch a isotexdominicana.com (2026-07-26), secciones
+# Techos y Losas completas:
+#
+#   TERMOPANEL® (Techos): panel sándwich acero-EPS-acero, PREFABRICADO, SIN
+#     concreto colado. Requiere pendiente mínima 6% -- no es un techo plano.
+#     Ancho útil 1.00 m, espesor 7-10 cm, largo hasta 12 m (corte a pedido).
+#     Ficha: isotexdominicana.com/wp-content/uploads/2018/09/TERMOPANEL.pdf
+#
+#   TERMOLÁMINA® (Techos): NO es un sistema para techo NUEVO -- es una
+#     lámina aislante para RETECHAR sobre una cubierta metálica EXISTENTE.
+#     Fuera de alcance para presupuestos de obra nueva.
+#
+#   TERMOLOSA® / ISOLOSA® / ISOFILL® (Losas): losa NERVADA -- EPS como
+#     relleno/encofrado entre nervios de concreto donde se concentra el
+#     acero, no un panel uniforme con capa de compresión. Sirven para
+#     ENTREPISO y para TECHO PLANO. Isolosa: módulo de 0.60 m entre
+#     nervios, con malla electrosoldada. Isofill: bovedilla, reduce 20-30%
+#     el consumo de concreto. Espesores variables sin tabla numérica
+#     completa disponible todavía (ISOLOSA-2.pdf perdió los valores de la
+#     tabla t/h/H/st al extraer texto).
+#
+# NINGUNO tiene precio público -- ni en el sitio del fabricante ni en la
+# competencia dominicana (verificado con búsqueda web). El usuario indicó
+# que este proveedor cotiza por m² instalado (todo incluido: material +
+# mano de obra + accesorios), no por lista de materiales sueltos como el
+# resto de este motor. Por eso, a diferencia de todas las demás partidas,
+# estos sistemas se modelan como UNA sola línea "instalado por m²" en vez
+# de descomponerse en materiales -- así es como el usuario los ha visto
+# cotizar en la práctica.
+#
+# Precio en 0.0 explícitamente, NO un placeholder inventado: usar un precio
+# de la competencia (paneles distintos, otro fabricante) habría arriesgado
+# un orden de magnitud equivocado sin ninguna base real. La interfaz debe
+# advertir de forma prominente que el total NO incluye el techo hasta que
+# se actualice con la cotización real de Isotex Dominicana.
+techos_alternativos:
+  termopanel:
+    pendiente_minima_pct: 6      # [doc] TERMOPANEL.pdf
+    ancho_util_m: 1.00           # [doc]
+    espesor_m: 0.07              # [doc] 7 cm (densidad 15 kg/m³); alt. 10cm
+    largo_maximo_m: 12.0         # [doc]
+  termolosa:
+    espesor_min_pulg: 4
+    espesor_max_pulg: 20
+  isolosa:
+    modulo_nervio_m: 0.60        # [doc] ISOLOSA-2.pdf
+  isofill:
+    espesor_conocido_m: 0.17     # [doc] variante "BOVEDILLA ISOFILL DE ESPESOR 17 CM"
+    ahorro_concreto_min: 0.20    # [doc] 20-30% de ahorro de concreto
+    ahorro_concreto_max: 0.30
+
+# ---------------------------------------------------------------------------
 # Rendimientos de mezcla
 # ---------------------------------------------------------------------------
 # [doc] Cemento 50 kg -> 138-148 L de concreto a 250 kg/cm². Se toma el punto medio.

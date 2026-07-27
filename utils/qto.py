@@ -104,13 +104,15 @@ CATEGORIAS_OBRA_GRIS = ("Cimentación", "Muros", "Losa", "Acero", "Mano de obra"
 # los requiere.
 # ---------------------------------------------------------------------------
 LIMITACIONES_CONOCIDAS = (
-    "Sistema de techo: este motor asume panel EPS + capa de compresión "
-    "de concreto (tipo \"Qualylosa\", Covintec México). El proveedor real "
-    "en RD (isotexdominicana.com) no vende ese producto -- su línea es "
-    "TERMOPANEL® (panel sándwich acero-EPS-acero, sin concreto, costo muy "
-    "distinto) o ISOLOSA® (EPS + perfil metálico, más parecido pero "
-    "producto propio). Confirmar qué sistema se va a usar antes de "
-    "presupuestar el techo con precisión.",
+    "Sistema de techo: implementado un selector real (Termopanel/Termolosa/"
+    "Isolosa/Isofill de Isotex Dominicana, proveedor único del usuario), "
+    "cotizado por m² instalado. NINGUNO tiene precio público todavía (ni "
+    "Isotex ni la competencia) -- cualquier presupuesto que use uno de "
+    "estos sistemas está INCOMPLETO hasta actualizar con la cotización "
+    "real. Termolosa/Isolosa/Isofill no tienen tabla de espesores completa "
+    "(sin desglose de materiales, solo precio instalado). El techo sigue "
+    "modelándose como área en planta, no como superficie inclinada real "
+    "(diferencia pequeña a la pendiente mínima de Termopanel, 6%).",
     "Techos a dos aguas: requieren malla cumbrera en el vértice superior "
     "(no modelado; este motor solo calcula losa plana/azotea).",
     "Obra híbrida (muros EPS que conectan con columnas de concreto o "
@@ -136,6 +138,8 @@ LIMITACIONES_CONOCIDAS = (
 class MotorQTO:
     """Motor de cantidades y presupuesto."""
 
+    SISTEMAS_TECHO_VALIDOS = (None, "termopanel", "termolosa", "isolosa", "isofill")
+
     def __init__(
         self,
         geometria: Geometria,
@@ -145,6 +149,7 @@ class MotorQTO:
         zona_riesgo: str = "moderado",
         aplanado_mecanizado: bool = False,
         parametros: dict[str, Any] | None = None,
+        sistema_techo: str | None = None,
     ):
         self.geo = geometria
         self.precios = dict(precios or DEFAULT_PRICEBOOK)
@@ -153,6 +158,19 @@ class MotorQTO:
         self.zona = normalizar_zona_riesgo(zona_riesgo)
         self.aplanado_mecanizado = aplanado_mecanizado
         self.p = parametros or cargar_parametros()
+
+        # [doc] Isotex Dominicana (proveedor único del usuario), secciones
+        # Techos y Losas: termopanel (sándwich sin concreto, requiere
+        # pendiente), termolosa/isolosa/isofill (losa nervada con
+        # concreto). `None` = motor genérico tipo Qualylosa (heredado de
+        # BASE_TECNICA_EPS_ICF.md/Covintec México), el comportamiento
+        # original de este motor.
+        if sistema_techo not in self.SISTEMAS_TECHO_VALIDOS:
+            raise ValueError(
+                f"sistema_techo no reconocido: {sistema_techo!r}. "
+                f"Usa uno de {self.SISTEMAS_TECHO_VALIDOS}"
+            )
+        self.sistema_techo = sistema_techo
 
     # -- helpers ---------------------------------------------------------
     def _precio(self, clave: str) -> float:
@@ -373,9 +391,15 @@ class MotorQTO:
         # paño" (caso más común en vivienda residencial dominicana) -- si
         # el proyecto real tiene volado, esta partida de malla externa en
         # la unión debe ajustarse manualmente.
-        piezas_esquinera_union_losa = math.ceil(
-            g.ml_muros_total * g.niveles / mallas["esquinera_largo_pieza_m"]
-        )
+        # Si la azotea usa un sistema alternativo real (Termopanel/Termolosa/
+        # Isolosa/Isofill), su precio "instalado" ya cubre la conexión con el
+        # muro -- esta malla es específica de la unión con una losa colada
+        # tipo Qualylosa (el modelo genérico), no aplica en ese caso.
+        piezas_esquinera_union_losa = 0
+        if not self.sistema_techo:
+            piezas_esquinera_union_losa = math.ceil(
+                g.ml_muros_total * g.niveles / mallas["esquinera_largo_pieza_m"]
+            )
         piezas_esquinera_interna += piezas_esquinera_union_losa
         piezas_esquinera_externa += piezas_esquinera_union_losa  # asume losa "a paño"
 
@@ -482,31 +506,53 @@ class MotorQTO:
         """
         Losa de techo/entrepiso.
 
-        ⚠️ SUPUESTO DE SISTEMA: este motor modela el techo como panel EPS +
-        capa de compresión de concreto colado -- el sistema tipo "Qualylosa"
-        de Covintec (México), que es de donde viene BASE_TECNICA_EPS_ICF.md.
+        Por defecto (`sistema_techo=None`), este motor modela el techo como
+        panel EPS + capa de compresión de concreto colado -- el sistema tipo
+        "Qualylosa" de Covintec (México), que es de donde viene
+        BASE_TECNICA_EPS_ICF.md. Es una aproximación genérica razonable,
+        pero NO corresponde a ningún producto real de Isotex Dominicana.
 
-        Verificado en isotexdominicana.com/techos/ (proveedor real del
-        usuario, RD): NO venden "Qualylosa". Su línea de techos es distinta:
-          - TERMOPANEL®: panel sándwich acero-EPS-acero PREFABRICADO, sin
-            colado de concreto -- estructura de costo completamente
-            diferente a lo que este motor calcula.
-          - ISOLOSA®: EPS + perfil metálico como encofrado, concreto colado
-            encima -- más parecido al modelo actual, pero producto propio
-            con sus propias dimensiones/rendimientos, no genérico.
-
-        NO se implementó un selector de tipo de techo con porcentajes de
-        diferencia: hacerlo sin cotizaciones/fichas reales de TERMOPANEL o
-        ISOLOSA sería inventar números, exactamente lo que esta auditoría
-        viene corrigiendo en todo lo demás. Mientras tanto, el motor sigue
-        usando el sistema tipo Qualylosa como estándar -- razonable como
-        aproximación genérica, pero el usuario debe saber que no es
-        necesariamente el sistema que va a comprar. Ver LIMITACIONES_CONOCIDAS.
+        Si se indica `sistema_techo` (termopanel/termolosa/isolosa/isofill),
+        la AZOTEA se calcula con ese sistema real como una sola línea
+        "instalado por m²" (el usuario confirmó que Isotex Dominicana cotiza
+        así, todo incluido, no por lista de materiales). El ENTREPISO sigue
+        con el modelo genérico -- estos sistemas también sirven para
+        entrepiso, pero sin tabla de espesores completa todavía (ver
+        parametros_tecnicos.yaml::techos_alternativos) no se puede migrar
+        esa parte con la misma confianza.
         """
         g, esp = self.geo, self.p["espesores"]
         partidas: list[Partida] = []
+        techo_alt = self.p.get("techos_alternativos", {}).get(self.sistema_techo or "", {})
 
-        if g.area_losa_azotea_m2 > 0:
+        if self.sistema_techo and g.area_losa_azotea_m2 > 0:
+            clave_precio = f"Techo_{self.sistema_techo.capitalize()}_m2"
+            nota_pendiente = self.sistema_techo not in ("",) and self._precio(clave_precio) == 0.0
+            detalle = (
+                f"Sistema real de Isotex Dominicana (proveedor único), cotizado "
+                f"por m² instalado -- todo incluido (material + mano de obra + "
+                f"accesorios), no desglosado en materiales como el resto de "
+                f"este presupuesto."
+            )
+            if self.sistema_techo == "termopanel":
+                detalle += (
+                    f" ⚠️ Requiere pendiente mínima de {techo_alt.get('pendiente_minima_pct', 6)}% "
+                    f"-- NO es un techo plano; el área usada aquí es la proyección en "
+                    f"planta, no la superficie real inclinada (diferencia pequeña a "
+                    f"pendiente mínima, mayor si la pendiente real es más pronunciada)."
+                )
+            if nota_pendiente:
+                detalle += (
+                    " 🔴 SIN COTIZAR: no existe precio público para este sistema "
+                    "(ni de Isotex ni de la competencia). Este presupuesto está "
+                    "INCOMPLETO hasta actualizar con la cotización real."
+                )
+            partidas.append(
+                Partida("Losa", f"Techo {self.sistema_techo.capitalize()} (instalado)",
+                        detalle, "m²", g.area_losa_azotea_m2, 0.0,
+                        clave_precio, self._precio(clave_precio), "[doc]")
+            )
+        elif g.area_losa_azotea_m2 > 0:
             partidas += [
                 Partida("Losa", "Panel de losa",
                         f"{g.n_paneles_losa} piezas moduladas a 1.22 m",
@@ -519,7 +565,18 @@ class MotorQTO:
                         self._desp("concreto"), "H_3000_PSI", self._precio("H_3000_PSI")),
             ]
 
+        # Entrepiso: siempre con el modelo genérico (ver docstring). Si hay
+        # techo alternativo Y entrepiso, el panel del entrepiso se compra
+        # aparte (antes estaba combinado con el de azotea en una sola línea).
         if g.area_losa_entrepiso_m2 > 0:
+            if self.sistema_techo:
+                partidas.append(
+                    Partida("Losa", "Panel de losa (entrepiso)",
+                            f"{g.n_paneles_losa} piezas moduladas a 1.22 m -- solo entrepiso, "
+                            f"la azotea usa {self.sistema_techo.capitalize()}",
+                            "m²", g.area_losa_entrepiso_m2, 0.0,
+                            "Panel_Techo", self._precio("Panel_Techo"))
+                )
             partidas.append(
                 Partida("Losa", "Capa de compresión (entrepiso)",
                         f"{esp['losa_entrepiso_m']*100:.1f} cm",
@@ -527,14 +584,25 @@ class MotorQTO:
                         self._desp("concreto"), "H_3500_PSI", self._precio("H_3500_PSI"))
             )
 
-        area_losa = g.area_losa_azotea_m2 + g.area_losa_entrepiso_m2
-        partidas.append(
-            Partida("Acero", "Acero de refuerzo en losa",
-                    "Acero principal + temperatura",
-                    "kg", area_losa * 6.0 * self._factores_zona["acero"],
-                    self._desp("acero"), "Acero_Varilla", self._precio("Acero_Varilla"),
-                    "[supuesto]")
+        # Acero de refuerzo: si la azotea usa un sistema alternativo, su
+        # precio "instalado" ya incluye el refuerzo propio del sistema (o,
+        # en el caso de Termopanel, no lleva acero en absoluto). Solo se
+        # calcula acero genérico para el área que sigue en el modelo genérico.
+        area_acero = g.area_losa_entrepiso_m2 if self.sistema_techo else (
+            g.area_losa_azotea_m2 + g.area_losa_entrepiso_m2
         )
+        if area_acero > 0:
+            partidas.append(
+                Partida("Acero", "Acero de refuerzo en losa",
+                        "Acero principal + temperatura" + (
+                            " (solo entrepiso -- la azotea usa un sistema alternativo "
+                            "cuyo precio instalado ya incluye su propio refuerzo)"
+                            if self.sistema_techo else ""
+                        ),
+                        "kg", area_acero * 6.0 * self._factores_zona["acero"],
+                        self._desp("acero"), "Acero_Varilla", self._precio("Acero_Varilla"),
+                        "[supuesto]")
+            )
         return partidas
 
     def _instalaciones(self) -> list[Partida]:
