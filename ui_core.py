@@ -355,6 +355,13 @@ def estimate_build_time_days(area_m2: float, productividad_m2_dia: float, min_da
 
 def estimate_foundation_volume_m3(area_m2: float, metodo: str) -> float:
     """
+    ⚠️ CÓDIGO MUERTO (verificado 2026-07-26): sin ningún caller fuera de este
+    archivo. Vivía en el modelo paramétrico "vigas H + cerramiento" de
+    `pagina_plano_estructura()`, retirado por estar desconectado del motor
+    QTO real (usaba `Panel_Muro: 925.00`, un precio sin fuente ya corregido
+    a 1,072 en todo el resto de la app). Ver utils/qto.py para el cálculo
+    real de cimentación (replantillo, plantilla, platea, dentellón).
+
     Estimación rápida para comparar métodos.
     - Tradicional suele requerir mayor cimentación por peso.
     """
@@ -369,6 +376,12 @@ def estimate_foundation_volume_m3(area_m2: float, metodo: str) -> float:
 
 def calc_h_beams_kg(area_m2: float, perimetro_m: float, beam_spacing_m: float, kg_per_m: float) -> float:
     """
+    ⚠️ CÓDIGO MUERTO (verificado 2026-07-26): mismo origen y motivo que
+    `estimate_foundation_volume_m3` -- ver esa nota. El propio informe de
+    auditoría original ya había señalado el peligro de activar vigas de
+    acero por defecto en un sistema cuyo argumento de venta es no
+    necesitarlas.
+
     Modelo paramétrico simple: longitud total de vigas ≈ (perímetro) + (2 * área/espaciamiento).
     Es una aproximación razonable para una retícula básica.
     """

@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from utils.catalog import Catalog
+from utils.estado import ProyectoState
 
 # Helpers compartidos desde ui_core
 
@@ -30,21 +31,21 @@ def pagina_visor_bim():
 
     st.caption("Visor conceptual: pensado para explicar al cliente el sistema y sus capas. No sustituye un modelado estructural final.")
 
-    # Fuente de parámetros: si vienes del trazado, úsalo; si no, defaults.
-    params = st.session_state.get("plan_params", {
-        "area_m2": 120.0,
-        "niveles": 1,
-        "perimetro_m": 44.0,
-        "altura_muro_m": 2.8,
-    })
+    # Fuente de parámetros: ProyectoState (la única fuente de verdad desde
+    # la Fase 2). Antes leía `st.session_state["plan_params"]` directo --
+    # esa clave dejó de escribirse cuando se migró `pagina_plano_estructura`
+    # a `sincronizar_parametros_globales()`; sin este cambio, el visor se
+    # habría quedado congelado en los valores por defecto (120 m², 1 nivel)
+    # sin importar lo que el usuario hubiera calibrado.
+    estado_proyecto = ProyectoState.cargar()
     layers = st.session_state.get("layers", None)
 
     with st.sidebar:
         st.markdown("### 🧩 Parámetros del modelo")
-        area_m2 = st.number_input("Área planta (m²)", min_value=10.0, max_value=100000.0, value=float(params.get("area_m2") or 120.0), step=10.0)
-        niveles = st.number_input("Niveles", min_value=1, max_value=20, value=int(params.get("niveles") or 1), step=1)
-        perimetro_m = st.number_input("Perímetro (m)", min_value=10.0, max_value=5000.0, value=float(params.get("perimetro_m") or 44.0), step=1.0)
-        altura_muro = st.number_input("Altura de muro (m)", min_value=2.2, max_value=6.0, value=float(params.get("altura_muro_m") or 2.8), step=0.1)
+        area_m2 = st.number_input("Área planta (m²)", min_value=10.0, max_value=100000.0, value=float(estado_proyecto.area_m2), step=10.0)
+        niveles = st.number_input("Niveles", min_value=1, max_value=20, value=int(estado_proyecto.niveles), step=1)
+        perimetro_m = st.number_input("Perímetro (m)", min_value=10.0, max_value=5000.0, value=float(estado_proyecto.perimetro_m or 44.0), step=1.0)
+        altura_muro = st.number_input("Altura de muro (m)", min_value=2.2, max_value=6.0, value=float(estado_proyecto.altura_muro_m), step=0.1)
 
         st.divider()
         st.markdown("### 🧱 Sistema")

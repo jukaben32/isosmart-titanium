@@ -159,3 +159,58 @@ def test_no_reaparecen_enlaces_de_redes_sociales_muertos():
     codigo = Path("ui_calculadora.py").read_text(encoding="utf-8")
     assert "[Facebook](#)" not in codigo
     assert "facebook.com/IsotexRD" in codigo
+
+
+def test_pagina_plano_ya_no_tiene_calculadora_paralela_desconectada():
+    """
+    Hallazgo grave (revisión 2026-07-26): `pagina_plano_estructura()` tenía
+    un SEGUNDO motor de cálculo completo (vigas H, cimientos, cerramiento)
+    totalmente desconectado del motor QTO real -- con su propio fallback de
+    precio `Panel_Muro: 925.00` (el precio SIN FUENTE corregido a 1,072
+    hace varias rondas en todo el resto de la app) y un 5%/15% de
+    desperdicio plano, el patrón que se eliminó del motor real
+    reemplazándolo por modulación a 1.22 m.
+
+    Ese número nunca llegaba a ningún presupuesto real, PDF, ni lead
+    guardado -- aparecía en pantalla con datos de hace meses y no iba a
+    ningún lado. Se retiró en vez de mantenerlo.
+    """
+    codigo = _sin_docstring_ni_comentarios("ui_calculadora.py")
+    assert "calc_h_beams_kg(" not in codigo
+    assert "estimate_foundation_volume_m3(" not in codigo
+    assert '"Panel_Muro", 925' not in codigo
+    assert "925.0" not in codigo
+
+
+def test_flujo_de_plano_pasa_por_proyecto_state_no_por_session_state_directo():
+    """
+    El análisis de plano con IA y el trazado sobre canvas escribían
+    directamente a `st.session_state["plan_params"]`, un flujo paralelo que
+    nunca pasaba por `ProyectoState` -- el resultado nunca llegaba al motor
+    QTO real. Ahora deben pasar por `sincronizar_parametros_globales()`.
+    """
+    codigo = _sin_docstring_ni_comentarios("ui_calculadora.py")
+    assert 'st.session_state["plan_params"]' not in codigo
+    assert "sincronizar_parametros_globales(" in codigo
+
+
+def test_funciones_muertas_de_ui_core_estan_marcadas():
+    """Que quede escrito en el propio archivo, no solo en este test."""
+    codigo = Path("ui_core.py").read_text(encoding="utf-8")
+    assert "CÓDIGO MUERTO" in codigo
+    # Debe haber más de una mención (utils/calculador.py, calculations.py,
+    # y ahora estas dos funciones también quedan marcadas donde viven).
+
+
+def test_visor_bim_lee_proyecto_state_no_plan_params_muerto():
+    """
+    Regresión introducida y corregida en la misma sesión: al retirar el
+    único lugar que escribía `plan_params` (la calculadora paralela
+    desconectada de pagina_plano_estructura), ui_visor_bim.py se habría
+    quedado leyendo una clave que ya nadie escribe -- el visor se hubiera
+    congelado siempre en los valores por defecto (120 m², 1 nivel), sin
+    importar lo que el usuario calibrara en cualquier otra pantalla.
+    """
+    codigo = _sin_docstring_ni_comentarios("ui_visor_bim.py")
+    assert 'session_state.get("plan_params"' not in codigo
+    assert "ProyectoState" in codigo

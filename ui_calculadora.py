@@ -15,10 +15,8 @@ from PIL import Image
 from ui_core import (
     PDFGenerator,
     ProjectManager,
-    calc_h_beams_kg,
     create_download_link,
     estimate_build_time_days,
-    estimate_foundation_volume_m3,
     get_gemini_api_key_from_config,
     initialize_gemini,
     render_text_design_assistant,
@@ -200,7 +198,10 @@ def pagina_calculadora():
             min_value=10.0,
             max_value=10000.0,
         )
-        st.session_state["calc_area_m2"] = m2_in
+        # Antes: `st.session_state["calc_area_m2"] = m2_in` aquí mismo --
+        # redundante con `estado_proyecto.guardar()` unas líneas más abajo
+        # en esta misma función, que ya sincroniza esta clave a través de
+        # ProyectoState (la única fuente de escritura que debe tocarla).
 
         st.subheader("Configuración Estructural del Proyecto")
 
@@ -700,12 +701,11 @@ def pagina_plano_estructura():
     </div>
     """, unsafe_allow_html=True)
 
-    st.info("MVP: el análisis del plano se convierte en parámetros editables. Mientras más claras sean las cotas/escala, mejor.")
+    st.info(
+        "Sube un plano para calibrar escala y extraer dimensiones -- las medidas "
+        "que extraigas aquí alimentan el presupuesto real de la app."
+    )
 
-    params_default = {
-        **DEFAULT_TEXT_DESIGN_PARAMS,
-        "observaciones": "",
-    }
     render_text_design_assistant("plano")
 
     with st.sidebar:
@@ -740,10 +740,17 @@ def pagina_plano_estructura():
                 data, raw = analyze_plan_image_with_gemini(model_vision, img)
             st.session_state["plan_raw"] = raw
             if isinstance(data, dict):
-                st.session_state["plan_params"] = {**params_default, **{k: v for k, v in data.items() if v is not None}}
-                st.success("✅ Parámetros sugeridos por IA (revisa/ajusta abajo).")
+                # ANTES: `st.session_state["plan_params"] = {...}` -- un flujo
+                # paralelo que nunca pasaba por ProyectoState. El resultado
+                # nunca llegaba al motor QTO real. Ahora usa el mismo camino
+                # que el resto de la app (ver sincronizar_parametros_globales
+                # en ui_core.py).
+                sincronizar_parametros_globales(
+                    {k: v for k, v in data.items() if v is not None},
+                    "Análisis de plano (IA)"
+                )
             else:
-                st.warning("No pude extraer un JSON confiable. Usa los parámetros manuales.")
+                st.warning("No pude extraer un JSON confiable. Usa el trazado manual abajo.")
 
         st.divider()
         st.markdown("### ✍️ Trazado sobre el plano (Opción B)")
@@ -771,6 +778,11 @@ def pagina_plano_estructura():
                 m_per_px = scale_from_canvas_line(objects_scale, real_len) if objects_scale else None
                 if m_per_px:
                     st.success(f"Escala estimada: {m_per_px:.6f} m/px")
+                    if contar_lineas_calibracion(objects_scale) > 1:
+                        st.warning(
+                            f"⚠️ Hay {contar_lineas_calibracion(objects_scale)} líneas dibujadas; "
+                            f"se calibró con la primera."
+                        )
                 else:
                     st.warning("Dibuja una línea para calcular la escala.")
 
@@ -790,16 +802,23 @@ def pagina_plano_estructura():
                 objects_per = (per_canvas.json_data or {}).get("objects", []) if per_canvas else []
                 poly = polygon_from_canvas(objects_per) if objects_per else None
                 if poly and m_per_px:
+                    if contar_poligonos(objects_per) > 1:
+                        st.warning(
+                            f"⚠️ Hay {contar_poligonos(objects_per)} polígonos trazados; "
+                            f"se usó el primero."
+                        )
                     area_px2, per_px = polygon_area_perimeter(poly)
                     area_m2 = area_px2 * (m_per_px ** 2)
                     per_m = per_px * m_per_px
                     st.success(f"Área (planta) ≈ {area_m2:,.2f} m² | Perímetro ≈ {per_m:,.2f} m")
                     if st.button("⬇️ Usar estos valores en el modelo", use_container_width=True):
-                        merged = dict(st.session_state.get("plan_params", params_default))
-                        merged["area_m2"] = float(area_m2)
-                        merged["perimetro_m"] = float(per_m)
-                        st.session_state["plan_params"] = merged
-                        st.success("✅ Parámetros actualizados desde el trazado.")
+                        # ANTES: escribía a `st.session_state["plan_params"]`
+                        # directo, sin pasar por ProyectoState -- ver la nota
+                        # equivalente arriba, en el análisis con IA.
+                        sincronizar_parametros_globales(
+                            {"area_m2": float(area_m2), "perimetro_m": float(per_m)},
+                            "Trazado sobre plano (canvas)"
+                        )
                         st.rerun()
                 elif poly and not m_per_px:
                     st.warning("Primero calibra la escala con una línea.")
@@ -854,65 +873,30 @@ def pagina_plano_estructura():
             else:
                 st.info("Calibra primero la escala para poder convertir capas a metros.")
 
-    params = st.session_state.get("plan_params", params_default)
-
-    st.markdown("### 🧩 Parámetros del modelo (editables)")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        area_m2 = st.number_input("Área construida (m²)", min_value=10.0, max_value=100000.0, value=float(params.get("area_m2") or 120.0), step=10.0)
-        niveles = st.number_input("Niveles", min_value=1, max_value=20, value=int(params.get("niveles") or 1), step=1)
-    with c2:
-        perimetro_m = st.number_input("Perímetro estimado (m)", min_value=10.0, max_value=5000.0, value=float(params.get("perimetro_m") or 44.0), step=1.0)
-        altura_muro_m = st.number_input("Altura de muro (m)", min_value=2.2, max_value=6.0, value=float(params.get("altura_muro_m") or 2.8), step=0.1)
-    with c3:
-        sistema = st.selectbox("Cerramiento", ["EPS", "ICF"], index=0)
-        espesor_muro_m = st.number_input("Espesor muro (m)", min_value=0.08, max_value=0.30, value=float(params.get("espesor_muro_m") or 0.12), step=0.01)
-
-    st.markdown("### 🏗️ Estructura con Vigas H (modelo paramétrico)")
-    colb1, colb2, colb3 = st.columns(3)
-    with colb1:
-        beam_spacing = st.number_input("Espaciamiento retícula (m)", min_value=1.5, max_value=8.0, value=3.0, step=0.25)
-    with colb2:
-        kg_per_m = st.number_input("Peso viga (kg/m)", min_value=5.0, max_value=200.0, value=18.0, step=1.0)
-    with colb3:
-        prod_trad = st.number_input("Productividad tradicional (m²/día)", min_value=1.0, max_value=500.0, value=12.0, step=1.0)
-        prod_eps = st.number_input("Productividad EPS/ICF (m²/día)", min_value=1.0, max_value=800.0, value=25.0, step=1.0)
-
-    pricebook = Pricebook(path=os.path.join("data", "pricebook.json"))
-    precios = pricebook.load()
-
-    vigas_kg = calc_h_beams_kg(area_m2 * niveles, perimetro_m, beam_spacing, kg_per_m)
-    costo_vigas = vigas_kg * float(precios.get("Viga_H_kg", 105.0))
-
-    area_muros = perimetro_m * altura_muro_m * niveles
-    st.metric("Acero en vigas H (estimado)", f"{vigas_kg:,.0f} kg", f"RD$ {costo_vigas:,.0f}")
-
-    st.markdown("### 🧱 Cerramiento (EPS/ICF) + Cimientos + Comparativa")
-    c_f1, c_f2, c_f3 = st.columns(3)
-    with c_f1:
-        vol_found_trad = estimate_foundation_volume_m3(area_m2 * niveles, "tradicional")
-        st.metric("Cimientos (Tradicional)", f"{vol_found_trad:.2f} m³", "estimado")
-    with c_f2:
-        vol_found_sys = estimate_foundation_volume_m3(area_m2 * niveles, "vigas h + eps/icf")
-        st.metric("Cimientos (EPS/ICF)", f"{vol_found_sys:.2f} m³", "estimado")
-    with c_f3:
-        t_trad = estimate_build_time_days(area_m2 * niveles, prod_trad)
-        t_sys = estimate_build_time_days(area_m2 * niveles, prod_eps)
-        st.metric("Tiempo (Tradicional vs EPS/ICF)", f"{t_trad:.1f} → {t_sys:.1f} días", f"{max(0.0, t_trad - t_sys):.1f} días menos")
-
-    st.markdown("#### Detalle rápido del cerramiento")
-    if sistema == "EPS":
-        panel_m2 = area_muros * 1.05
-        costo_panel = panel_m2 * float(precios.get("Panel_Muro", 925.0))
-        st.write(f"- Área de muros estimada: **{area_muros:,.1f} m²**")
-        st.write(f"- Paneles EPS/Isotex para cerramiento (con 5%): **{panel_m2:,.1f} m²**")
-        st.write(f"- Costo estimado cerramiento: **RD$ {costo_panel:,.0f}**")
-    else:
-        bloques_m2 = area_muros * 0.85
-        costo_icf = bloques_m2 * float(precios.get("Panel_Muro", 925.0)) * 1.15
-        st.write(f"- Área de muros estimada: **{area_muros:,.1f} m²**")
-        st.write(f"- Bloques ICF (equivalente m²): **{bloques_m2:,.1f} m²**")
-        st.write(f"- Costo estimado cerramiento: **RD$ {costo_icf:,.0f}**")
+    # ------------------------------------------------------------------
+    # ANTES: aquí seguía un "modelo paramétrico" completo (vigas H,
+    # cimientos, cerramiento) con su PROPIO cálculo desconectado del motor
+    # QTO real -- fórmulas propias (`calc_h_beams_kg`,
+    # `estimate_foundation_volume_m3`), su propio pricebook fallback con
+    # `Panel_Muro: 925.00` (el precio SIN FUENTE que se corrigió a 1,072 en
+    # todo el resto de la app hace varias rondas), y un 5%/15% de
+    # desperdicio plano -- exactamente el patrón que se eliminó del motor
+    # real reemplazándolo por modulación a 1.22 m.
+    #
+    # Ese bloque nunca llegaba a ningún presupuesto real, a ningún PDF, ni
+    # se guardaba con el lead: era un número que aparecía en pantalla y no
+    # iba a ningún lado, calculado con un precio de hace meses. Se retira
+    # en vez de mantenerlo -- la calculadora real está a un clic.
+    # ------------------------------------------------------------------
+    estado_actual = ProyectoState.cargar()
+    st.divider()
+    st.markdown("### 🧾 Presupuesto real")
+    st.info(
+        f"Área actual del proyecto: **{estado_actual.area_m2:,.0f} m²**"
+        + (f" (desde: {estado_actual.origen_metricas})" if estado_actual.origen_metricas else "")
+        + ". El presupuesto completo -- con el motor de cantidades real, no una "
+          "estimación paramétrica aparte -- está en **🧾 Presupuesto Detallado**."
+    )
 
     with st.expander("Ver respuesta cruda de IA (si aplica)", expanded=False):
         st.markdown("**Text-to-Design**")
