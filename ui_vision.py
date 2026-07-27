@@ -1,55 +1,24 @@
-# -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import google.generativeai as genai
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime, date
-from fpdf import FPDF
-import base64
-import json
-import os
 from io import BytesIO
-from typing import Dict, List, Optional, Tuple
-import hashlib
-import time
 
-from utils.pricebook import Pricebook
-from utils.storage import list_dict_values, read_json, write_json_atomic
-from utils.gemini_plan import analyze_plan_image_with_gemini
-from utils.plan_geometry import (
-    polygon_area_perimeter,
-    polygon_from_canvas,
-    scale_from_canvas_line,
-    extract_line_segments,
-    extract_points,
-)
-from utils.pdf_utils import pdf_first_page_to_image
-from utils.catalog import Catalog
-from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
-from utils.ai_media import generate_facade_image_fal, generate_video_luma
-from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
-from utils.calculador import BudgetCalculator
-from utils.energia import AnalisisEnergetico
+import streamlit as st
+from PIL import Image
 
 # Helpers compartidos desde ui_core
 from ui_core import (
     sincronizar_parametros_globales,
-    ProjectManager,
-    PDFGenerator,
-    create_download_link,
-    initialize_gemini,
-    get_gemini_api_key_from_config,
-    get_fal_key_from_config,
-    get_luma_key_from_config,
-    init_text_design_state,
-    render_text_design_assistant,
-    estimate_build_time_days,
-    estimate_foundation_volume_m3,
-    calc_h_beams_kg,
+    st_canvas,
 )
+from utils.gemini_plan import analyze_plan_image_with_gemini
+from utils.pdf_utils import pdf_first_page_to_image
+from utils.plan_geometry import (
+    contar_lineas_calibracion,
+    contar_poligonos,
+    polygon_area_perimeter,
+    polygon_from_canvas,
+    scale_from_canvas_line,
+)
+
 
 def render_integradora_vision_canvas(modelo_gemini):
     """Pestaña: Extracción Geométrica Avanzada y Visión Artificial."""
@@ -118,8 +87,18 @@ def render_integradora_vision_canvas(modelo_gemini):
                 objs = canvas_out.json_data["objects"]
                 m_px = scale_from_canvas_line(objs, dist_real)
                 if m_px:
+                    if contar_lineas_calibracion(objs) > 1:
+                        st.warning(
+                            f"⚠️ Hay {contar_lineas_calibracion(objs)} líneas dibujadas; "
+                            f"se calibró con la primera."
+                        )
                     st.caption(f"Factor de calibración: {m_px:.6f} m/px")
                     path_poligono = polygon_from_canvas(objs)
+                    if contar_poligonos(objs) > 1:
+                        st.warning(
+                            f"⚠️ Hay {contar_poligonos(objs)} polígonos trazados; "
+                            f"se usó el primero."
+                        )
                     if path_poligono:
                         a_px2, p_px = polygon_area_perimeter(path_poligono)
                         real_a = a_px2 * (m_px ** 2)

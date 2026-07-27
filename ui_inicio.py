@@ -1,280 +1,214 @@
 # -*- coding: utf-8 -*-
-"""Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import google.generativeai as genai
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime, date
-from fpdf import FPDF
-import base64
-import json
+"""
+ui_inicio.py
+------------
+Página de inicio.
+
+REESCRITURA POR TRAZABILIDAD (2026-07-26)
+==========================================
+La versión anterior mostraba nueve cifras y tres afirmaciones de texto sin
+ninguna fuente:
+
+  - Los números (RD$ 1,178,009 / RD$ 7,200,000 / 83.6% / 180-300 días /
+    26,400-102,000 kg) salían de `BudgetCalculator.comparar_sistemas()`, el
+    motor CLÁSICO que la Fase 1 de la auditoría reemplazó por `utils/qto.py`
+    en el resto de la app. Esta página nunca se migró.
+  - "-30%", "-40%", "-5°C", "70% menos peso", "3 veces más rápido" en el hero
+    y las tarjetas de beneficio eran texto fijo sin cálculo ni cita.
+  - "Excelente/Regular", "Hasta 45dB/~20dB", "Alta (flexible)/Media (rígido)"
+    en la tabla comparativa eran texto fijo en el HTML.
+
+Principio de esta reescritura: **todo dato que se muestra en pantalla declara
+su fuente** (`utils/fuentes.py`). Un dato sin fuente defendible no se muestra
+como cifra: se retira o se marca explícitamente como no disponible.
+"""
+
 import os
-from io import BytesIO
-from typing import Dict, List, Optional, Tuple
-import hashlib
-import time
 
-from utils.pricebook import Pricebook
-from utils.storage import list_dict_values, read_json, write_json_atomic
-from utils.gemini_plan import analyze_plan_image_with_gemini
-from utils.plan_geometry import (
-    polygon_area_perimeter,
-    polygon_from_canvas,
-    scale_from_canvas_line,
-    extract_line_segments,
-    extract_points,
-)
-from utils.pdf_utils import pdf_first_page_to_image
-from utils.catalog import Catalog
-from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
-from utils.ai_media import generate_facade_image_fal, generate_video_luma
-from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
-from utils.calculador import BudgetCalculator
-from utils.energia import AnalisisEnergetico
+import streamlit as st
 
-# Helpers compartidos desde ui_core
-from ui_core import (
-    sincronizar_parametros_globales,
-    ProjectManager,
-    PDFGenerator,
-    create_download_link,
-    initialize_gemini,
-    get_gemini_api_key_from_config,
-    get_fal_key_from_config,
-    get_luma_key_from_config,
-    init_text_design_state,
-    render_text_design_assistant,
-    estimate_build_time_days,
-    estimate_foundation_volume_m3,
-    calc_h_beams_kg,
+from utils.estilos import caja_info, encabezado, inyectar_css, tarjeta_metrica
+from utils.fuentes import (
+    COSTO_TRADICIONAL_RD_M2,
+    FICHA_COVINTEC,
+    SIN_FUENTE_CONOCIDA,
+    TIPO_CAMBIO_FECHA,
+    TIPO_CAMBIO_FUENTE,
+    TIPO_CAMBIO_MXN_DOP,
+    TIPO_CAMBIO_URL,
 )
+from utils.geometria import Geometria
+from utils.pricebook import PRECIOS_POR_VERIFICAR, Pricebook
+from utils.qto import MotorQTO
+
+
+def _footnote(fuente) -> None:
+    """Pie de página con la cita de una `Fuente`, bajo cualquier dato mostrado."""
+    st.markdown(fuente.html_footnote(), unsafe_allow_html=True)
+
 
 def pagina_inicio():
-    """Página de inicio educativa y de marketing"""
+    """Página de inicio: educativa, con cada cifra trazada a su fuente."""
+    inyectar_css()
 
-    # Hero section
-    st.markdown("""
-    <div class="main-header">
-        <h1 style="margin:0;">🏗️ IsoSmart Titanium</h1>
-        <p style="margin:10px 0 0 0; font-size:1.3rem;">Construcción Inteligente con Poliestireno Expandido en República Dominicana</p>
-        <p style="margin:5px 0 0 0; opacity:0.9;">Ahorra hasta 30% en costos y 40% en tiempo de construcción</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Beneficios principales
-    st.markdown("### 🌟 ¿Por Qué Construir con Poliestireno Expandido?")
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.markdown("""
-        <div class="benefit-card">
-            <div style="font-size:3rem;">💰</div>
-            <h3>Menor Costo</h3>
-            <p class="big-metric" style="color:#28a745;">-30%</p>
-            <p>vs construcción tradicional</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("""
-        <div class="benefit-card">
-            <div style="font-size:3rem;">⚡</div>
-            <h3>Más Rápido</h3>
-            <p class="big-metric" style="color:#28a745;">-40%</p>
-            <p>tiempo de construcción</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        st.markdown("""
-        <div class="benefit-card">
-            <div style="font-size:3rem;">🌡️</div>
-            <h3>Térmico</h3>
-            <p class="big-metric" style="color:#28a745;">-5°C</p>
-            <p>interior más fresco</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col4:
-        st.markdown("""
-        <div class="benefit-card">
-            <div style="font-size:3rem;">🔊</div>
-            <h3>Acústico</h3>
-            <p class="big-metric" style="color:#28a745;">-45dB</p>
-            <p>aislamiento sonoro</p>
-        </div>
-        """, unsafe_allow_html=True)
+    # -- hero --------------------------------------------------------------
+    encabezado(
+        "🏗️ IsoSmart Titanium",
+        "Construcción con poliestireno expandido (EPS/ICF) en República Dominicana",
+    )
 
     st.divider()
 
-    # Información educativa
-    st.markdown("### 📚 ¿Qué es el Sistema Isotex/ICF?")
+    # -- comparativa real, calculada con el motor QTO -----------------------
+    st.markdown("### 📊 Comparativa para una vivienda de 120 m²")
+    st.caption(
+        "Calculado en vivo con `utils/qto.py` (motor de cantidades), no con cifras fijas. "
+        "Cambia el área en **🧾 Presupuesto Detallado** para ver cómo varía."
+    )
 
-    tab_info1, tab_info2, tab_info3 = st.tabs(["🏠 Sistema Isotex", "🧱 Bloques ICF", "❓ Preguntas Frecuentes"])
+    precios = Pricebook(os.path.join("data", "pricebook.json")).load()
+    geo = Geometria(area_m2=120.0, perimetro_m=44.0, altura_muro_m=2.8, niveles=1)
+    motor = MotorQTO(geo, precios, sistema="Paneles Isotex", calidad="media")
+    comp = motor.comparar_con_tradicional()
 
-    with tab_info1:
-        st.markdown("""
-        #### Paneles Isotex - Construcción Moderna y Eficiente
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        tarjeta_metrica("Costo EPS/ICF", f"RD$ {comp['eps']['costo_total']:,.0f}",
+                        f"RD$ {comp['eps']['costo_m2']:,.0f}/m²", variante="green")
+    with c2:
+        tarjeta_metrica("Costo Tradicional", f"RD$ {comp['tradicional']['costo_total']:,.0f}",
+                        f"RD$ {comp['tradicional']['costo_m2']:,.0f}/m²", variante="orange")
+    with c3:
+        tarjeta_metrica("Ahorro Total", f"RD$ {comp['ahorro']['total_rd']:,.0f}",
+                        f"{comp['ahorro']['total_pct']:.1f}% menos", variante="blue")
 
-        **El sistema Isotex** utiliza paneles prefabricados de poliestireno expandido (EPS) recubiertos con malla electrosoldada,
-        que se llenan con concreto para formar muros y losas estructurales.
+    st.caption(
+        f"El {comp['ahorro']['obra_gris_pct']:.1f}% de ahorro se aplica solo a la "
+        f"**obra gris**; los acabados son iguales en ambos sistemas. Antes esta "
+        f"página mostraba 83.6% comparando obra gris EPS contra obra **terminada** "
+        f"tradicional — peras con manzanas. Ver `docs/BASE_TECNICA_EPS_ICF.md`."
+    )
 
-        ##### ✅ Ventajas:
-        - **Peso reducido**: 70% menos peso que la construcción tradicional
-        - **Aislamiento térmico**: Reduce el consumo de aire acondicionado
-        - **Aislamiento acústico**: Hasta 45dB de reducción de ruido
-        - **Resistencia sísmica**: Mayor flexibilidad ante movimientos
-        - **Rapidez**: Hasta 3 veces más rápido que el ladrillo
+    por_verificar = motor.partidas_por_verificar()
+    if not por_verificar.empty:
+        monto = por_verificar["subtotal"].sum()
+        st.warning(
+            f"⚠️ RD$ {monto:,.0f} de este presupuesto ({monto/motor.total()*100:.0f}% del "
+            f"total) usa precios de **referencia**, no cotizaciones de proveedor local. "
+            f"Ver la sección de fuentes al final de esta página."
+        )
 
-        ##### 📋 Aplicaciones:
-        - Viviendas unifamiliares
-        - Edificios de apartamentos
-        - Locales comerciales
-        - Habitaciones de hotel
-        """)
+    # -- tabla técnica, con cita por fila ------------------------------------
+    st.markdown("### 🔧 Características técnicas")
+    st.caption("Cada fila cita su fuente. Lo que no tiene fuente defendible no aparece.")
 
-        st.image("https://images.unsplash.com/photo-1590059390239-03c9e7064e92?w=800",
-                 caption="Panel Isotex durante instalación", use_container_width=True)
+    filas = [
+        ("Peso del panel (sin aplanar)", FICHA_COVINTEC["peso_panel_sin_aplanar_kg_m2"]),
+        ("Peso de losa terminada (azotea)", FICHA_COVINTEC["peso_losa_azotea_kg_m2"]),
+        ("Resistencia térmica de la losa", FICHA_COVINTEC["resistencia_termica_r"]),
+        ("Aislamiento acústico", FICHA_COVINTEC["aislamiento_acustico_db"]),
+        ("Reducción de acero estructural", FICHA_COVINTEC["reduccion_acero_pct"]),
+    ]
+    for etiqueta, fuente in filas:
+        col_a, col_b = st.columns([2, 3])
+        with col_a:
+            st.markdown(f"**{etiqueta}**")
+            st.markdown(f"### {fuente.valor}")
+        with col_b:
+            st.caption(fuente.etiqueta)
+            _footnote(fuente)
+        st.divider()
 
-    with tab_info2:
-        st.markdown("""
-        #### Bloques ICF - Encofrado Concreto Aislante
-
-        **ICF (Insulated Concrete Forms)** son bloques huecos de poliestireno que sirven como encofrado permanente.
-        Se apilan como LEGO y se llenan de concreto, creando muros con aislamiento integrado.
-
-        ##### ✅ Ventajas:
-        - **Eficiencia energética**: Hasta 60% de ahorro en HVAC
-        - **Resistencia estructural**: Muros de concreto reforzado
-        - **Facilidad de instalación**: Sistema tipo LEGO
-        - **Durabilidad**: No se pudre, no atrae termitas
-        - **Ecológico**: Menor huella de carbono
-
-        ##### 📋 Aplicaciones:
-        - Sótanos y cimentaciones
-        - Muros de contención
-        - Edificios de varios pisos
-        - Cámaras frigoríficas
-        """)
-
-    with tab_info3:
-        st.markdown("""
-        #### Preguntas Frecuentes
-
-        **❓ ¿Es resistente a huracanes?**
-        ✅ Sí, los muros de EPS con concreto tienen excelente resistencia a vientos huracanados.
-        El sistema ha sido probado en zonas sísmicas y de huracanes.
-
-        **❓ ¿Lo comen las termitas?**
-        ✅ No, el poliestireno tratado no es alimento para termitas. Además, el concreto
-        circundante crea una barrera física.
-
-        **❓ ¿Qué duración tiene?**
-        ✅ La vida útil es superior a 50 años. El concreto protegido por el EPS dura más
-        porque no está expuesto directamente a los elementos.
-
-        **❓ ¿Necesito mano de obra especializada?**
-        ✅ Se requiere capacitación básica, pero cualquier albañil puede aprender en 1-2 días.
-        Nuestro team ofrece capacitación y supervisión.
-
-        **❓ ¿El precio incluye mano de obra?**
-        ✅ Los cálculos mostrados son de materiales. Ofrecemos cotización de mano de obra
-        por separado. Contáctanos para un presupuesto completo.
-
-        **❓ ¿Dónde puedo comprar estos materiales en RD?**
-        ✅ Trabajamos con proveedores locales. Isotex RD tiene distribución nacional.
-        También importamos ICF de proveedores certificados.
-        """)
+    with st.expander("❓ Datos que esta app YA NO afirma, por falta de fuente"):
+        st.caption(
+            "Estas afirmaciones aparecían en versiones anteriores sin ningún respaldo. "
+            "Se retiraron en vez de dejarlas como texto fijo."
+        )
+        for clave, fuente in SIN_FUENTE_CONOCIDA.items():
+            st.markdown(f"- **{clave.replace('_', ' ')}**: {fuente.cita}")
 
     st.divider()
 
-    # Comparativa rápida
-    st.markdown("### 📊 Comparativa: Isotex vs Construcción Tradicional")
+    # -- información educativa ------------------------------------------------
+    st.markdown("### 📚 ¿Qué es el sistema Isotex/ICF?")
 
-    st.markdown("""
-    <div class="info-card">
-    <strong>Para una vivienda de 120 m² en Santo Domingo:</strong>
-    </div>
-    """, unsafe_allow_html=True)
+    tab1, tab2, tab3 = st.tabs(["🏠 Sistema Isotex", "🧱 Bloques ICF", "❓ Preguntas frecuentes"])
 
-    # Carga precios para la comparación de demo
-    pricebook_demo = Pricebook(path=os.path.join("data", "pricebook.json"))
-    precios_demo = pricebook_demo.load()
-    comparacion = BudgetCalculator.comparar_sistemas(120, precios_demo)
-
-    col_comp1, col_comp2, col_comp3 = st.columns(3)
-
-    with col_comp1:
-        st.metric(
-            label="💰 Costo Isotex",
-            value=f"RD$ {comparacion['isotex']['costo_total']:,.0f}",
-            delta=f"RD$ {comparacion['isotex']['costo_m2']:,.0f}/m²"
+    with tab1:
+        st.markdown(
+            "**El sistema Isotex** usa paneles prefabricados de poliestireno "
+            "expandido (EPS) recubiertos con malla electrosoldada, que se rellenan "
+            "con concreto para formar muros y losas estructurales."
+        )
+        st.caption(
+            "Descripción del sistema constructivo, sin cifras de rendimiento "
+            "comparativo (ver la tabla de arriba para las que sí tienen fuente)."
         )
 
-    with col_comp2:
-        st.metric(
-            label="🏗️ Costo Tradicional",
-            value=f"RD$ {comparacion['tradicional']['costo_total']:,.0f}",
-            delta=f"RD$ {comparacion['tradicional']['costo_m2']:,.0f}/m²",
-            delta_color="inverse"
+    with tab2:
+        st.markdown(
+            "**ICF (Insulated Concrete Forms)** son bloques huecos de poliestireno "
+            "que sirven como encofrado permanente. Se apilan y se rellenan de "
+            "concreto, creando muros con aislamiento integrado."
         )
 
-    with col_comp3:
-        st.metric(
-            label="✅ Ahorro Total",
-            value=f"RD$ {comparacion['ahorro']['dinero']:,.0f}",
-            delta=f"{comparacion['ahorro']['porcentaje']:.1f}% menos",
-            delta_color="normal"
+    with tab3:
+        st.markdown("#### Preguntas frecuentes")
+        st.markdown(
+            "**¿El precio incluye mano de obra?** Sí: el motor de cantidades "
+            "(`🧾 Presupuesto Detallado`) incluye jornales de montaje, aplanado, "
+            "cimentación y losa, según los rendimientos de `docs/BASE_TECNICA_EPS_ICF.md`."
+        )
+        st.markdown(
+            "**¿Dónde se compran los materiales en RD?** Ese canal de proveedor "
+            "todavía no está establecido con precios verificables. Mientras tanto, "
+            "esta app usa precios de referencia de Covintec México para las "
+            "partidas donde existe una fuente citable — ver más abajo."
+        )
+        st.caption(
+            "Las preguntas sobre resistencia sísmica, vida útil y resistencia a "
+            "termitas se retiraron de esta sección hasta contar con un informe de "
+            "ingeniería o una norma que las respalde para el sistema y la zona "
+            "específicos de este proyecto."
         )
 
-    # Tabla comparativa
-    st.markdown("""
-    <table class="comparison-table" style="width:100%; margin:20px 0;">
-        <tr style="background:#1e3c72; color:white;">
-            <th>Característica</th>
-            <th>Isotex/ICF</th>
-            <th>Tradicional</th>
-        </tr>
-        <tr>
-            <td><strong>Costo por m²</strong></td>
-            <td class="highlight-green">RD$ {isotex_m2:,.0f}</td>
-            <td>RD$ {trad_m2:,.0f}</td>
-        </tr>
-        <tr>
-            <td><strong>Tiempo de construcción</strong></td>
-            <td class="highlight-green">{isotex_t} días</td>
-            <td>{trad_t} días</td>
-        </tr>
-        <tr>
-            <td><strong>Peso de la estructura</strong></td>
-            <td class="highlight-green">{isotex_p} kg</td>
-            <td>{trad_p} kg</td>
-        </tr>
-        <tr>
-            <td><strong>Aislamiento térmico</strong></td>
-            <td class="highlight-green">Excelente</td>
-            <td>Regular</td>
-        </tr>
-        <tr>
-            <td><strong>Aislamiento acústico</strong></td>
-            <td class="highlight-green">Hasta 45dB</td>
-            <td>~20dB</td>
-        </tr>
-        <tr>
-            <td><strong>Resistencia sísmica</strong></td>
-            <td class="highlight-green">Alta (flexible)</td>
-            <td>Media (rígido)</td>
-        </tr>
-    </table>
-    """.format(
-        isotex_m2=comparacion['isotex']['costo_m2'],
-        trad_m2=comparacion['tradicional']['costo_m2'],
-        isotex_t=int(comparacion['isotex']['tiempo_dias']),
-        trad_t=int(comparacion['tradicional']['tiempo_dias']),
-        isotex_p=int(comparacion['isotex']['peso_kg']),
-        trad_p=int(comparacion['tradicional']['peso_kg'])
-    ), unsafe_allow_html=True)
+    st.divider()
 
+    # -- fuentes y metodología ------------------------------------------------
+    with st.expander("📎 Fuentes y metodología", expanded=False):
+        st.markdown(
+            "Todas las cifras técnicas de esta página citan una fuente pública. "
+            "Ninguna es una medición local en República Dominicana: son datos del "
+            "fabricante del mismo sistema constructivo (Covintec, México) o índices "
+            "oficiales dominicanos, usados como referencia mientras se establece "
+            "un canal de precios local verificable."
+        )
+
+        st.markdown("**Costo de construcción tradicional en RD**")
+        _footnote(COSTO_TRADICIONAL_RD_M2)
+
+        st.markdown("**Tipo de cambio usado para convertir precios de Covintec México**")
+        st.markdown(
+            f"1 MXN = {TIPO_CAMBIO_MXN_DOP} DOP · {TIPO_CAMBIO_FECHA.strftime('%d/%m/%Y')} · "
+            f'<a href="{TIPO_CAMBIO_URL}" target="_blank">{TIPO_CAMBIO_FUENTE}</a>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("**Fichas técnicas citadas**")
+        for etiqueta, fuente in FICHA_COVINTEC.items():
+            st.markdown(f"- {etiqueta.replace('_', ' ')}: {fuente.cita}")
+            if fuente.url:
+                st.caption(fuente.url)
+
+        if PRECIOS_POR_VERIFICAR:
+            st.markdown(
+                f"**{len(PRECIOS_POR_VERIFICAR)} partidas del pricebook** todavía usan "
+                f"estimaciones de ingeniería sin cotización real: "
+                + ", ".join(sorted(k.replace('_', ' ') for k in PRECIOS_POR_VERIFICAR))
+            )
+
+        caja_info(
+            "Si algo en esta app te parece incorrecto o sin fuente, repórtalo: "
+            "el objetivo es que cada número sea verificable, no solo plausible.",
+            "💬 ¿Ves algo sin fuente?",
+        )

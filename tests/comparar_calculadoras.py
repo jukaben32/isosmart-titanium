@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Test de regresión: la calculadora única (utils/calculador.py) debe dar los
 MISMOS totales que la UI mostraba antes (cuando usaba la clase de app.py).
@@ -12,6 +11,7 @@ Ejecutar:
 """
 
 import sys
+
 sys.path.insert(0, ".")
 
 from utils.calculador import BudgetCalculator

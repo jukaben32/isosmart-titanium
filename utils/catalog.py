@@ -5,8 +5,7 @@ from typing import Any, Dict, List
 
 from .storage import read_json, write_json_atomic
 
-
-DEFAULT_CATALOG: Dict[str, Any] = {
+DEFAULT_CATALOG: dict[str, Any] = {
     "provider": {
         "name": "Isotex Dominicana",
         "source_pages": [
@@ -51,16 +50,16 @@ DEFAULT_CATALOG: Dict[str, Any] = {
 class Catalog:
     path: str
 
-    def load(self) -> Dict[str, Any]:
+    def load(self) -> dict[str, Any]:
         data = read_json(self.path, default={})
         if isinstance(data, dict) and data.get("products"):
             return data
         return DEFAULT_CATALOG
 
-    def save(self, catalog: Dict[str, Any]) -> None:
+    def save(self, catalog: dict[str, Any]) -> None:
         write_json_atomic(self.path, catalog)
 
-    def list_products(self) -> List[Dict[str, Any]]:
+    def list_products(self) -> list[dict[str, Any]]:
         cat = self.load()
         prods = cat.get("products", [])
         return [p for p in prods if isinstance(p, dict)]

@@ -1,99 +1,88 @@
-# -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import google.generativeai as genai
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime, date
-from fpdf import FPDF
-import base64
-import json
 import os
-from io import BytesIO
-from typing import Dict, List, Optional, Tuple
-import hashlib
-import time
 
-from utils.pricebook import Pricebook
-from utils.storage import list_dict_values, read_json, write_json_atomic
-from utils.gemini_plan import analyze_plan_image_with_gemini
-from utils.plan_geometry import (
-    polygon_area_perimeter,
-    polygon_from_canvas,
-    scale_from_canvas_line,
-    extract_line_segments,
-    extract_points,
+import pandas as pd
+import streamlit as st
+
+from ui_core import (
+    get_gemini_api_key_from_config,
+    initialize_gemini,
 )
-from utils.pdf_utils import pdf_first_page_to_image
-from utils.catalog import Catalog
-from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
-from utils.ai_media import generate_facade_image_fal, generate_video_luma
-from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
-from utils.calculador import BudgetCalculator
-from utils.energia import AnalisisEnergetico
 
 # Helpers compartidos desde ui_core
-from ui_core import (
-    sincronizar_parametros_globales,
-    ProjectManager,
-    PDFGenerator,
-    create_download_link,
-    initialize_gemini,
-    get_gemini_api_key_from_config,
-    get_fal_key_from_config,
-    get_luma_key_from_config,
-    init_text_design_state,
-    render_text_design_assistant,
-    estimate_build_time_days,
-    estimate_foundation_volume_m3,
-    calc_h_beams_kg,
-)
+from ui_vision import render_integradora_vision_canvas
+from utils.estado import ProyectoState
+from utils.qto import CATEGORIAS_OBRA_GRIS, MotorQTO
+from utils.financiera import AnalisisFinancieroRD
+from utils.pricebook import Pricebook
+
 
 def render_pestana_pricebook():
-    """Pestaña: Panel de Control del Libro de Precios RD."""
+    """
+    Pestaña: Panel de Control del Libro de Precios RD.
+
+    FUENTE ÚNICA: ahora usa la clase `Pricebook` (escritura atómica + merge con
+    los 27 materiales por defecto). Antes esta función tenía su propio
+    diccionario de 8 precios hardcodeados y escribía el JSON con `open(w)`
+    directo, ignorando `write_json_atomic` y sin `encoding="utf-8"`.
+    """
     st.subheader("⚙️ Panel de Control del Libro de Precios RD")
-    ruta = os.path.join("data", "pricebook.json")
-    os.makedirs("data", exist_ok=True)
+    st.caption(
+        "Precios de REFERENCIA (Covintex convertidos a RD$). "
+        "Sustituir por precios reales de proveedor antes de emitir cotizaciones."
+    )
 
-    # Precios base por defecto (Costo Mercado Dominicano 2026)
-    precios = {
-        "Panel_Muro":     925.0,
-        "Panel_Techo":   1125.0,
-        "H_3000_PSI":    7350.0,
-        "H_3500_PSI":    7950.0,
-        "Viga_H_kg":      105.0,
-        "Acero_Varilla":   85.0,
-        "Ceramica_m2":    450.0,
-        "Pintura_galon": 1200.0,
-    }
+    libro = Pricebook(os.path.join("data", "pricebook.json"))
+    precios = libro.load()
 
-    if os.path.exists(ruta):
-        try:
-            with open(ruta, "r") as f:
-                precios.update(json.load(f))
-        except Exception:
-            pass
+    # Materiales que el motor QTO consume hoy (fuente única desde Fase 1). El
+    # resto se muestra pero se marca honestamente como sin efecto sobre el
+    # presupuesto: editarlos y ver "guardado" sin que cambie nada era una
+    # promesa falsa de la interfaz.
+    usados = MotorQTO.claves_precio_usadas()
 
-    col1, col2 = st.columns(2)
-    with col1:
-        precios["Panel_Muro"]    = st.number_input("Costo Muro EPS (RD$/m²)",      value=float(precios["Panel_Muro"]))
-        precios["Panel_Techo"]   = st.number_input("Costo Techo EPS (RD$/m²)",     value=float(precios["Panel_Techo"]))
-        precios["H_3000_PSI"]    = st.number_input("Hormigón 3000 PSI (RD$/m³)",   value=float(precios["H_3000_PSI"]))
-    with col2:
-        precios["Acero_Varilla"] = st.number_input("Varilla de Acero (RD$/kg)",    value=float(precios["Acero_Varilla"]))
-        precios["Ceramica_m2"]   = st.number_input("Porcelanato/Cerámica (RD$/m²)", value=float(precios["Ceramica_m2"]))
-        precios["Pintura_galon"] = st.number_input("Pintura Insumo (RD$/gal)",     value=float(precios["Pintura_galon"]))
+    activos = {k: v for k, v in precios.items() if k in usados}
+    inactivos = {k: v for k, v in precios.items() if k not in usados}
 
-    if st.button("💾 Guardar y Sincronizar Libro de Precios", use_container_width=True, type="primary"):
-        with open(ruta, "w") as f:
-            json.dump(precios, f, indent=4)
+    st.markdown("#### ✅ Materiales que afectan el presupuesto")
+    cols = st.columns(3)
+    for i, clave in enumerate(sorted(activos)):
+        with cols[i % 3]:
+            precios[clave] = st.number_input(
+                clave.replace("_", " "),
+                value=float(precios[clave]),
+                min_value=0.0,
+                step=25.0,
+                key=f"pb_act_{clave}",
+            )
+
+    with st.expander(
+        f"⚠️ {len(inactivos)} materiales aún NO conectados al motor de cálculo",
+        expanded=False,
+    ):
+        st.warning(
+            "Estos precios se guardan, pero todavía no entran en ninguna partida "
+            "del presupuesto (instalaciones, baños, cocina, ventanas, mallas...). "
+            "Se conectan en la migración al motor de partidas `utils/qto.py`."
+        )
+        cols2 = st.columns(3)
+        for i, clave in enumerate(sorted(inactivos)):
+            with cols2[i % 3]:
+                precios[clave] = st.number_input(
+                    clave.replace("_", " "),
+                    value=float(precios[clave]),
+                    min_value=0.0,
+                    step=25.0,
+                    key=f"pb_ina_{clave}",
+                )
+
+    if st.button("💾 Guardar y Sincronizar Libro de Precios",
+                 use_container_width=True, type="primary"):
+        libro.save(precios)                       # escritura atómica + utf-8
         st.session_state["precios_sincronizados"] = precios
-        st.success("¡Libro de precios sincronizado en el archivo local de configuración!")
+        st.success("¡Libro de precios sincronizado!")
 
-    if st.session_state.get("precios_sincronizados") is None:
-        st.session_state["precios_sincronizados"] = precios
+    st.session_state.setdefault("precios_sincronizados", precios)
 
 
 def render_vista_presupuesto_y_roi():
@@ -108,14 +97,28 @@ def render_vista_presupuesto_y_roi():
 
     st.markdown(f"#### 📐 Proyecto Actual Evaluado: **{area:.2f} m²**")
 
-    # Ejecutar cálculos de obra gris y acabados
-    df_gris, df_term = BudgetCalculator.calcular_presupuesto_completo(area, "Paneles Isotex", precios)
+    # ------------------------------------------------------------------
+    # Motor de cálculo: MotorQTO (antes: BudgetCalculator, motor clásico).
+    #
+    # Esta pestaña mostraba solo la obra gris (ignoraba obra terminada en el
+    # total), con sistema fijo en "Paneles Isotex" y sin usar el perímetro,
+    # niveles o zona de riesgo que el usuario ya hubiera calibrado en la
+    # pestaña "📐 Visión & Geometría" de este mismo Panel Operativo.
+    # ------------------------------------------------------------------
+    estado = ProyectoState.cargar()
+    estado.area_m2 = area
+    geo = estado.geometria()
+    motor = MotorQTO(geo, precios, sistema=estado.sistema, calidad=estado.calidad,
+                     zona_riesgo=estado.zona_riesgo)
+
+    df_completo = motor.presupuesto()
 
     st.markdown("##### 🧱 Costos de Obra Gris Estructural")
-    st.dataframe(df_gris, use_container_width=True)
+    st.dataframe(df_completo[df_completo["categoria"].isin(CATEGORIAS_OBRA_GRIS)],
+                use_container_width=True)
 
-    total_gris = df_gris["Subtotal"].sum()
-    st.metric("Total Neto Estructural", f"RD$ {total_gris:,.2f}")
+    st.metric("Total Neto Estructural (obra gris)", f"RD$ {motor.total_obra_gris():,.2f}")
+    st.metric("Total General (gris + terminada)", f"RD$ {motor.total():,.2f}")
 
     # Retorno de Inversión Térmica con tarifa BTS2
     st.divider()
@@ -153,3 +156,204 @@ def pagina_panel_operativo():
 # PÁGINAS DE LA APLICACIÓN
 # ============================================================================
 
+
+
+# ============================================================================
+# PRESUPUESTO DETALLADO (motor QTO) — Fase 1 de la auditoría
+# ============================================================================
+
+def pagina_presupuesto_detallado():
+    """
+    Presupuesto por partidas con el motor `utils/qto.py`.
+
+    A diferencia de la calculadora clásica, esta vista:
+      - consume la geometría real (perímetro, altura, niveles) en vez de m²x2.2
+      - incluye mortero, mallas, anclas, instalaciones, acabados y mano de obra
+      - compara obra gris contra obra gris (27.5%), no gris contra terminada
+    """
+    from utils.geometria import Geometria
+    from utils.qto import MotorQTO
+
+    st.title("🧾 Presupuesto Detallado por Partidas")
+    st.caption(
+        "Motor basado en `docs/BASE_TECNICA_EPS_ICF.md`: espesores reales de mortero "
+        "(2.5 cm/cara), mallas, cimentación completa y mano de obra."
+    )
+
+    with st.sidebar:
+        st.markdown("### 📐 Geometría")
+        area = st.number_input("Área construida total (m²)", min_value=20.0, max_value=5000.0,
+                               value=float(st.session_state.get("calc_area_m2", 120.0)), step=10.0)
+        perimetro = st.number_input("Perímetro de planta (m)", min_value=0.0, max_value=1000.0,
+                                    value=float(st.session_state.get("calc_perimetro_m", 0.0) or 0.0),
+                                    step=1.0,
+                                    help="0 = estimar automáticamente con proporción 3:2")
+        altura = st.number_input("Altura de muro (m)", min_value=2.2, max_value=6.0,
+                                 value=float(st.session_state.get("calc_altura_muro_m", 2.8)), step=0.1)
+        niveles = st.number_input("Niveles", min_value=1, max_value=20,
+                                  value=int(st.session_state.get("calc_niveles", 1)))
+        # Antes ausente de la interfaz: una casa en L (6 esquinas típicas,
+        # 4 convexas + 2 cóncavas) se calculaba siempre con 4 esquinas por
+        # defecto, sin manera de corregirlo. Verificado con NotebookLM del
+        # usuario: esquinas entrantes y salientes reciben el mismo
+        # tratamiento (una tira interna + una externa cada una), así que
+        # solo hace falta el conteo total, no distinguir el tipo.
+        esquinas = st.number_input("Número de esquinas", min_value=4, max_value=20, value=4,
+                                   help="4 para una planta rectangular simple. Una casa en L "
+                                        "típica tiene 6 (4 convexas + 2 cóncavas); ambos tipos "
+                                        "llevan el mismo tratamiento de malla esquinera.")
+
+        st.markdown("### ⚙️ Configuración")
+        sistema = st.selectbox("Sistema", ["Paneles Isotex", "ICF Proform"])
+        calidad = st.selectbox("Calidad de terminados", ["economica", "media", "alta", "lujo"], index=1)
+        zona = st.selectbox("Zona de riesgo", ["Moderado (Base)", "Alto", "Muy Alto"])
+        lanzadora = st.checkbox("Aplanado con lanzadora neumática", value=False,
+                                help="60-70 m²/día frente a 15-20 m²/día manual")
+
+        sistema_techo_label = st.selectbox(
+            "Sistema de techo",
+            ["Genérico (panel + concreto, tipo Qualylosa)", "Termopanel®", "Termolosa®",
+             "Isolosa®", "Isofill® (bovedilla)"],
+            help="Termopanel/Termolosa/Isolosa/Isofill son productos reales de Isotex "
+                 "Dominicana, cotizados por m² instalado. NINGUNO tiene precio público "
+                 "todavía -- el total quedará incompleto hasta que actualices el precio."
+        )
+        sistema_techo = {
+            "Genérico (panel + concreto, tipo Qualylosa)": None,
+            "Termopanel®": "termopanel",
+            "Termolosa®": "termolosa",
+            "Isolosa®": "isolosa",
+            "Isofill® (bovedilla)": "isofill",
+        }[sistema_techo_label]
+        if sistema_techo:
+            st.caption(
+                f"⚠️ RD$0.00 hasta que actualices el precio de "
+                f"`Techo_{sistema_techo.capitalize()}_m2` con la cotización real."
+            )
+
+        with st.expander("🪟 Dimensiones reales de vanos", expanded=False):
+            st.caption(
+                "La malla zigzag está calibrada para ventanas de 90x90 cm y puertas "
+                "de 215x90 cm (docs/BASE_TECNICA_EPS_ICF.md). Si tus vanos son más "
+                "grandes, indícalo aquí -- si no, la malla se queda corta sin avisar."
+            )
+            col_v1, col_v2 = st.columns(2)
+            with col_v1:
+                ancho_ventana = st.number_input("Ancho de ventana (m)", min_value=0.3, max_value=4.0,
+                                                value=0.90, step=0.1)
+                ancho_puerta = st.number_input("Ancho de puerta (m)", min_value=0.5, max_value=2.5,
+                                               value=0.90, step=0.1)
+            with col_v2:
+                alto_ventana = st.number_input("Alto de ventana (m)", min_value=0.3, max_value=3.0,
+                                               value=0.90, step=0.1)
+                alto_puerta = st.number_input("Alto de puerta (m)", min_value=1.8, max_value=3.0,
+                                              value=2.15, step=0.05)
+
+    geo = Geometria(
+        area_m2=area,
+        perimetro_m=perimetro or None,
+        altura_muro_m=altura,
+        niveles=int(niveles),
+        esquinas=int(esquinas),
+        ancho_ventana_m=ancho_ventana,
+        alto_ventana_m=alto_ventana,
+        ancho_puerta_m=ancho_puerta,
+        alto_puerta_m=alto_puerta,
+    )
+    precios = st.session_state.get("precios_sincronizados") or Pricebook(
+        os.path.join("data", "pricebook.json")
+    ).load()
+
+    try:
+        motor = MotorQTO(geo, precios, sistema=sistema, calidad=calidad,
+                         zona_riesgo=zona, aplanado_mecanizado=lanzadora,
+                         sistema_techo=sistema_techo)
+        df = motor.presupuesto()
+    except (KeyError, ValueError) as e:
+        st.error(f"No se pudo calcular el presupuesto: {e}")
+        return
+
+    # -- métricas ---------------------------------------------------------
+    if sistema_techo and motor._precio(f"Techo_{sistema_techo.capitalize()}_m2") == 0.0:
+        st.error(
+            f"🔴 **Este presupuesto está INCOMPLETO**: el sistema de techo "
+            f"({sistema_techo_label}) no tiene precio cotizado (RD$0.00/m²). "
+            f"Actualiza `Techo_{sistema_techo.capitalize()}_m2` en el pricebook "
+            f"con la cotización real de Isotex Dominicana antes de entregar este "
+            f"presupuesto a un cliente."
+        )
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total", f"RD$ {motor.total():,.0f}")
+    c2.metric("Costo por m²", f"RD$ {motor.costo_m2():,.0f}")
+    c3.metric("Obra gris", f"RD$ {motor.total_obra_gris():,.0f}")
+    c4.metric("Obra terminada", f"RD$ {motor.total_obra_terminada():,.0f}",
+              f"{motor.total_obra_terminada()/motor.total()*100:.0f}% del total")
+
+    # -- geometría derivada ----------------------------------------------
+    with st.expander("📐 Geometría derivada del proyecto", expanded=False):
+        st.caption(
+            "Estos valores ya alimentan el cálculo. Antes se extraían del plano "
+            "y no los leía nadie."
+        )
+        st.dataframe(pd.DataFrame([geo.resumen()]).T.rename(columns={0: "Valor"}),
+                     use_container_width=True)
+
+    # -- comparación gris vs gris ----------------------------------------
+    comp = motor.comparar_con_tradicional()
+    st.markdown("### ⚖️ Comparación con construcción tradicional")
+    st.info(
+        f"**Ahorro sobre obra gris: {comp['ahorro']['obra_gris_pct']:.1f}%** "
+        f"(rango documentado: {comp['rango_ahorro_gris'][0]:.0f}–{comp['rango_ahorro_gris'][1]:.0f}%). "
+        f"Sobre el **total** el ahorro es de **{comp['ahorro']['total_pct']:.1f}%**, "
+        f"porque los acabados son iguales en ambos sistemas. "
+        f"Ésta es la cifra que resiste una revisión técnica."
+    )
+    st.dataframe(pd.DataFrame({
+        "Concepto": ["Obra gris", "Obra terminada", "TOTAL", "RD$/m²", "Plazo (días)"],
+        "EPS / ICF": [comp["eps"]["obra_gris"], comp["eps"]["obra_terminada"],
+                      comp["eps"]["costo_total"], comp["eps"]["costo_m2"], comp["eps"]["dias"]],
+        "Tradicional": [comp["tradicional"]["obra_gris"], comp["tradicional"]["obra_terminada"],
+                        comp["tradicional"]["costo_total"], comp["tradicional"]["costo_m2"],
+                        comp["tradicional"]["dias"]],
+    }).style.format({"EPS / ICF": "{:,.0f}", "Tradicional": "{:,.0f}"}),
+        use_container_width=True)
+
+    # -- desglose ---------------------------------------------------------
+    st.markdown("### 📊 Desglose por categoría")
+    st.dataframe(motor.resumen_por_categoria(), use_container_width=True)
+
+    st.markdown("### 📋 Partidas")
+    st.dataframe(df, use_container_width=True, height=420)
+
+    # -- honestidad sobre los precios ------------------------------------
+    por_verificar = motor.partidas_por_verificar()
+    if not por_verificar.empty:
+        monto = por_verificar["subtotal"].sum()
+        st.warning(
+            f"⚠️ **{len(por_verificar)} partidas (RD$ {monto:,.0f}, "
+            f"{monto/motor.total()*100:.0f}% del presupuesto) usan precios de REFERENCIA**, "
+            "no cotizaciones de proveedor. Sustitúyelos antes de entregar este "
+            "presupuesto a un cliente."
+        )
+        with st.expander("Ver partidas con precio por verificar"):
+            st.dataframe(por_verificar, use_container_width=True)
+
+    # -- honestidad sobre condiciones de proyecto no modeladas ------------
+    with st.expander("⚠️ Condiciones de proyecto que este motor NO calcula", expanded=False):
+        st.caption(
+            "Verificado con el NotebookLM del usuario: estos refuerzos existen en las "
+            "fuentes técnicas pero no están modelados todavía. Si tu proyecto tiene "
+            "alguna de estas condiciones, presupuéstala aparte."
+        )
+        for limitacion in MotorQTO.limitaciones_conocidas():
+            st.markdown(f"- {limitacion}")
+
+    # -- exportación ------------------------------------------------------
+    st.download_button(
+        "📥 Descargar presupuesto (CSV)",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name=f"presupuesto_{int(area)}m2.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )

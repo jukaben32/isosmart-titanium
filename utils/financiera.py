@@ -1,20 +1,20 @@
-# -*- coding: utf-8 -*-
 """
 Módulo de Análisis Financiero para IsoSmart Titanium
 Cálculos de ROI, VAN, TIR, análisis de sensibilidad y proyecciones
 """
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+
 try:
     import numpy_financial as npf
 except ImportError:
     npf = None  # Fallback si no está instalado
-from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+from typing import Dict, List, Optional
 
-from utils.calculador import BudgetCalculator
 from utils.pricebook import DEFAULT_PRICEBOOK
+from utils.tarifa import TARIFA_BLOQUES, calcular_costo_energia_rd
 
 
 @dataclass
@@ -22,12 +22,12 @@ class ResultadoFinanciero:
     """Resultado de análisis financiero"""
     roi_nominal: float          # % ROI total
     roi_anualizado: float      # % ROI anual compuesto
-    payback_anios: float       # Período de recuperación
+    payback_anios: float | None  # Años hasta recuperar el sobrecosto; None si nunca
     van: float                  # Valor Actual Neto
     tir: float                  # Tasa Interna de Retorno
     tco: float                  # Costo Total de Propiedad
     ahorro_acumulado: float     # Ahorro vs construcción tradicional
-    flujo_caja: List[float]    # Flujos de caja por año
+    flujo_caja: list[float]    # Flujos de caja por año
 
 
 class AnalisisFinanciero:
@@ -48,42 +48,55 @@ class AnalisisFinanciero:
     CONSUMO_AC_ISOTEX_KWH_M2 = 25       # kWh/m²/mes (hasta 50% menos)
 
     @classmethod
-    def calcular_ahorro_energia_mensual(cls, area_m2: float, sistema: str = "isotex") -> Dict[str, float]:
+    def calcular_ahorro_energia_mensual(cls, area_m2: float, sistema: str = "isotex") -> dict[str, float]:
         """
-        Calcula el ahorro energético mensual comparado con construcción tradicional.
-        Usa la tarifa BTS2 real de las EDES dominicanas (delegado a AnalisisFinancieroRD).
+        Ahorro energético mensual frente a construcción tradicional.
 
-        Args:
-            area_m2: Área de construcción en m²
-            sistema: 'isotex', 'icf' o 'tradicional'
+        MODELO UNIFICADO (corrección de auditoría)
+        ------------------------------------------
+        El repositorio tenía TRES modelos energéticos incompatibles que, para la
+        misma casa de 120 m², devolvían RD$ 36,936 / RD$ 5,522 / RD$ 1,022 de
+        ahorro mensual: un factor de 36x entre el primero y el tercero.
 
-        Returns:
-            Diccionario con consumo y ahorro mensual
+        El que alimentaba el ROI era el peor: 45 kWh/m²/mes de consumo de aire
+        acondicionado, es decir 5,400 kWh/mes y una factura de RD$ 43,779 para
+        una vivienda de 120 m². El consumo real de una vivienda dominicana de
+        ese tamaño ronda los 300–800 kWh/mes.
+
+        Ahora esta función delega en `AnalisisEnergetico`, que es el único de los
+        tres con una base física trazable (carga térmica por volumen -> BTU/h ->
+        consumo vía SEER -> tarifa por bloques).
         """
-        # Consumo tradicional: 45 kWh/m²/mes
-        consumo_trad_mes = area_m2 * cls.CONSUMO_AC_TRADICIONAL_KWH_M2
+        from utils.energia import AnalisisEnergetico  # import diferido: evita ciclo
 
-        if sistema.lower() == "tradicional":
-            costo = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_trad_mes)
+        carga_trad = AnalisisEnergetico.calcular_carga_termica(area_m2, sistema="tradicional")
+        consumo_trad = AnalisisEnergetico.calcular_consumo_mensual(
+            carga_trad["carga_termica_btu_h"], seer=16.0
+        )
+
+        if str(sistema).strip().lower() == "tradicional":
             return {
-                "consumo_kwh_mes": consumo_trad_mes,
-                "costo_mes_rd": costo,
+                "consumo_kwh_mes": round(consumo_trad["consumo_mensual_kwh"], 2),
+                "costo_mes_rd": round(consumo_trad["consumo_mensual_rd"], 2),
                 "ahorro_kwh_mes": 0.0,
                 "ahorro_rd_mes": 0.0,
             }
 
-        # Isotex/ICF reduce consumo ~45%
-        factor_reduccion = 0.55
-        consumo_eps_mes = consumo_trad_mes * factor_reduccion
-
-        costo_trad = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_trad_mes)
-        costo_eps  = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_eps_mes)
+        sistema_eps = "icf" if str(sistema).strip().lower() == "icf" else "isotex"
+        carga_eps = AnalisisEnergetico.calcular_carga_termica(area_m2, sistema=sistema_eps)
+        consumo_eps = AnalisisEnergetico.calcular_consumo_mensual(
+            carga_eps["carga_termica_btu_h"], seer=16.0
+        )
 
         return {
-            "consumo_kwh_mes": round(consumo_eps_mes, 2),
-            "costo_mes_rd":    round(costo_eps, 2),
-            "ahorro_kwh_mes":  round(consumo_trad_mes - consumo_eps_mes, 2),
-            "ahorro_rd_mes":   round(costo_trad - costo_eps, 2),
+            "consumo_kwh_mes": round(consumo_eps["consumo_mensual_kwh"], 2),
+            "costo_mes_rd": round(consumo_eps["consumo_mensual_rd"], 2),
+            "ahorro_kwh_mes": round(
+                consumo_trad["consumo_mensual_kwh"] - consumo_eps["consumo_mensual_kwh"], 2
+            ),
+            "ahorro_rd_mes": round(
+                consumo_trad["consumo_mensual_rd"] - consumo_eps["consumo_mensual_rd"], 2
+            ),
         }
 
     @classmethod
@@ -91,97 +104,99 @@ class AnalisisFinanciero:
                     costo_tradicional: float, horizonte_anios: int = 10,
                     tasa_descuento: float = None) -> ResultadoFinanciero:
         """
-        Calcula ROI, VAN, TIR y payback para un proyecto ISOTEX vs Tradicional
+        ROI, VAN, TIR, payback y TCO de EPS/ICF frente a construcción tradicional.
 
-        Args:
-            area_m2: Área de construcción en m²
-            costo_total_isotex: Costo total de construcción ISOTEX (RD$)
-            costo_tradicional: Costo total construcción tradicional (RD$)
-            horizonte_anios: Período de análisis en años
-            tasa_descuento: Tasa de descuento para VAN (default 12%)
+        CORRECCIÓN DE SIGNO (auditoría)
+        -------------------------------
+        La versión anterior hacía:
 
-        Returns:
-            ResultadoFinanciero con todas las métricas
+            inversion_inicial = costo_tradicional - costo_total_isotex
+            if inversion_inicial < 0:
+                inversion_inicial = costo_total_isotex - costo_tradicional
+            flujos.append(-inversion_inicial)
+
+        Ambas ramas producían un flujo NEGATIVO en el año 0. Es decir: cuando
+        EPS resultaba más barato —el caso que la app siempre presenta— el modelo
+        trataba el ahorro inicial como si fuera un desembolso. VAN, TIR y payback
+        se calculaban sobre una inversión inexistente.
+
+        Ahora el año 0 lleva su signo real:
+          - EPS más caro   -> diferencial negativo (inversión real a recuperar)
+          - EPS más barato -> diferencial positivo (ahorro disponible desde el día 0)
         """
         if tasa_descuento is None:
             tasa_descuento = cls.TASA_DESCUENTO_DEFAULT
 
-        # Inversión inicial (diferencia)
-        inversion_inicial = costo_tradicional - costo_total_isotex
-        if inversion_inicial < 0:
-            # ISOTEX es más caro - ajustar análisis
-            inversion_inicial = costo_total_isotex - costo_tradicional
-            es_mas_caro = True
-        else:
-            es_mas_caro = False
+        # >0 si EPS ahorra desde el inicio; <0 si EPS cuesta más.
+        diferencial_inicial = float(costo_tradicional) - float(costo_total_isotex)
+        sobrecosto_inicial = max(0.0, -diferencial_inicial)   # lo que hay que recuperar
 
-        # Flujos anuales (ahorro + mantenimiento)
-        flujos = []
         mantenimiento_isotex = costo_total_isotex * cls.MANTENIMIENTO_PORCENTAJE
         mantenimiento_tradicional = costo_tradicional * cls.MANTENIMIENTO_PORCENTAJE
+        ahorro_mantenimiento = mantenimiento_tradicional - mantenimiento_isotex
         ahorro_energia_anual = (
             cls.calcular_ahorro_energia_mensual(area_m2, "isotex")["ahorro_rd_mes"] * 12
         )
-        ahorro_mantenimiento = (mantenimiento_tradicional - mantenimiento_isotex)
+        flujo_anual = ahorro_energia_anual + ahorro_mantenimiento
 
-        # Año 0: inversión inicial (negativo)
-        flujos.append(-inversion_inicial)
+        # Año 0 con su signo real + flujos anuales constantes.
+        # (Antes: `flujo_anual * anio if anio == 1 else flujo_anual`, un `*1`
+        #  residual que solo hacía ilegible la intención.)
+        flujos = [diferencial_inicial] + [flujo_anual] * int(horizonte_anios)
+        flujos_np = np.array(flujos, dtype=float)
 
-        # Años 1 a horizonte
-        for anio in range(1, horizonte_anios + 1):
-            flujo_anual = ahorro_energia_anual + ahorro_mantenimiento
-            # Acumular ahorros
-            flujos.append(flujo_anual * anio if anio == 1 else flujo_anual)
-
-        # Crear array de numpy para cálculos
-        flujos_np = np.array(flujos)
-
-        # Calcular VAN (usando numpy-financial si está disponible)
+        # VAN
         if npf is not None:
-            van = npf.npv(tasa_descuento, flujos_np)
+            van = float(npf.npv(tasa_descuento, flujos_np))
         else:
-            # Cálculo manual del VAN como fallback
-            van = sum(f / (1 + tasa_descuento)**i for i, f in enumerate(flujos_np))
+            van = float(sum(f / (1 + tasa_descuento) ** i for i, f in enumerate(flujos_np)))
 
-        # Calcular TIR (usando numpy-financial si está disponible)
-        try:
-            if npf is not None:
-                tir = npf.irr(flujos_np) * 100  # En porcentaje
-            else:
+        # TIR: solo tiene sentido si hay cambio de signo en la serie.
+        tir = 0.0
+        hay_cambio_signo = min(flujos) < 0 < max(flujos)
+        if npf is not None and hay_cambio_signo:
+            try:
+                valor = npf.irr(flujos_np)
+                tir = float(valor * 100) if valor is not None and np.isfinite(valor) else 0.0
+            except Exception:
                 tir = 0.0
-        except Exception:
-            tir = 0.0
 
-        # Payback simple (sin descontar)
-        flujo_acumulado = 0
-        payback = horizonte_anios
-        for i, flujo in enumerate(flujos[1:], 1):
-            flujo_acumulado += flujo
-            if flujo_acumulado >= inversion_inicial:
-                payback = i
-                break
-
-        # ROI nominal
-        total_ahorros = sum(flujos[1:])
-        roi_nominal = ((total_ahorros - abs(flujos[0])) / abs(flujos[0])) * 100 if flujos[0] != 0 else 0
-
-        # ROI anualizado (CAGR)
-        if flujos[0] < 0 and payback < horizonte_anios:
-            valor_final = abs(flujos[0]) * (1 + roi_nominal/100)
-            if valor_final > 0 and abs(flujos[0]) > 0:
-                roi_anualizado = ((valor_final / abs(flujos[0])) ** (1/horizonte_anios) - 1) * 100
-            else:
-                roi_anualizado = 0
+        # Payback: 0 si no hay sobrecosto que recuperar; None si nunca se recupera.
+        if sobrecosto_inicial <= 0:
+            payback = 0.0
         else:
-            roi_anualizado = 0
+            payback = None
+            acumulado = 0.0
+            for i, flujo in enumerate(flujos[1:], start=1):
+                acumulado += flujo
+                if acumulado >= sobrecosto_inicial:
+                    payback = float(i)
+                    break
 
-        # Costo Total de Propiedad
-        tco_isotex = costo_total_isotex + (mantenimiento_isotex * horizonte_anios)
-        tco_tradicional = costo_tradicional + (mantenimiento_tradicional * horizonte_anios)
-        tco = tco_isotex
+        # ROI sobre el capital realmente desplegado (el costo de construir en EPS).
+        beneficio_total = diferencial_inicial + sum(flujos[1:])
+        base = float(costo_total_isotex) or 1.0
+        roi_nominal = (beneficio_total / base) * 100.0
 
-        # Ahorro acumulado
-        ahorro_acumulado = tco_tradicional - tco_isotex
+        # CAGR equivalente del ROI a lo largo del horizonte.
+        crecimiento = 1.0 + (roi_nominal / 100.0)
+        roi_anualizado = (
+            (crecimiento ** (1.0 / horizonte_anios) - 1.0) * 100.0
+            if crecimiento > 0 and horizonte_anios > 0
+            else 0.0
+        )
+
+        # TCO ahora incluye energía, como especifica SPEC.md (antes se omitía).
+        energia_isotex_anual = (
+            cls.calcular_ahorro_energia_mensual(area_m2, "isotex")["costo_mes_rd"] * 12
+        )
+        energia_trad_anual = (
+            cls.calcular_ahorro_energia_mensual(area_m2, "tradicional")["costo_mes_rd"] * 12
+        )
+        tco_isotex = (costo_total_isotex
+                      + (mantenimiento_isotex + energia_isotex_anual) * horizonte_anios)
+        tco_tradicional = (costo_tradicional
+                           + (mantenimiento_tradicional + energia_trad_anual) * horizonte_anios)
 
         return ResultadoFinanciero(
             roi_nominal=roi_nominal,
@@ -189,8 +204,8 @@ class AnalisisFinanciero:
             payback_anios=payback,
             van=van,
             tir=tir,
-            tco=tco,
-            ahorro_acumulado=ahorro_acumulado,
+            tco=tco_isotex,
+            ahorro_acumulado=tco_tradicional - tco_isotex,
             flujo_caja=flujos
         )
 
@@ -211,46 +226,45 @@ class AnalisisFinanciero:
 
         Returns:
             DataFrame con análisis de sensibilidad
+
+        MIGRACIÓN (revisión de pantallas, 2026-07-26): antes usaba el motor
+        clásico (`BudgetCalculator`), que da 9.6% de obra terminada y un
+        ahorro fijo del 83.6% para cualquier área. Ahora usa `MotorQTO`
+        (motor de cantidades, Fase 1 de la auditoría), cuyo ahorro varía
+        genuinamente con el proyecto.
         """
-        from utils.calculador import BudgetCalculator
+        from utils.geometria import Geometria
+        from utils.qto import MotorQTO
 
         resultados = []
         areas = np.arange(area_min, area_max + paso, paso)
         precios = DEFAULT_PRICEBOOK
+        sistema_qto = "icf" if sistema.lower() == "icf" else "isotex"
 
         for area in areas:
-            obra_gris, obra_terminada = BudgetCalculator.calcular_presupuesto_completo(
-                m2=area,
-                sistema=f"Paneles {sistema}" if sistema != "icf" else "ICF Proform",
-                precios=precios,
-                incluir_vigas=True,
-                calidad_terminados=calidad
-            )
+            motor = MotorQTO(Geometria(area_m2=float(area)), precios,
+                             sistema=sistema_qto, calidad=calidad)
+            comp = motor.comparar_con_tradicional()
 
-            total_isotex = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-            comparacion = BudgetCalculator.comparar_sistemas(area, precios)
-            total_tradicional = comparacion['tradicional']['costo_total']
-
-            costo_m2_isotex = total_isotex / area
-            costo_m2_trad = total_tradicional / area
-            ahorro_pct = ((total_tradicional - total_isotex) / total_tradicional) * 100
+            total_isotex = comp["eps"]["costo_total"]
+            total_tradicional = comp["tradicional"]["costo_total"]
 
             resultados.append({
                 'Area_m2': area,
                 'Costo_Isotex_RD': total_isotex,
                 'Costo_Tradicional_RD': total_tradicional,
-                'Costo_m2_Isotex': costo_m2_isotex,
-                'Costo_m2_Tradicional': costo_m2_trad,
-                'Ahorro_RD': total_tradicional - total_isotex,
-                'Ahorro_Pct': ahorro_pct,
-                'Tiempo_Construccion_Dias': comparacion['isotex']['tiempo_dias']
+                'Costo_m2_Isotex': comp["eps"]["costo_m2"],
+                'Costo_m2_Tradicional': comp["tradicional"]["costo_m2"],
+                'Ahorro_RD': comp["ahorro"]["total_rd"],
+                'Ahorro_Pct': comp["ahorro"]["total_pct"],
+                'Tiempo_Construccion_Dias': comp["eps"]["dias"]
             })
 
         return pd.DataFrame(resultados)
 
     @classmethod
     def analizar_sensibilidad_precio_materiales(cls, area_m2: float = 120,
-                                                 variacion_pct: List[float] = None,
+                                                 variacion_pct: list[float] = None,
                                                  sistema: str = "isotex") -> pd.DataFrame:
         """
         Analiza sensibilidad a variaciones en precios de materiales
@@ -262,24 +276,23 @@ class AnalisisFinanciero:
 
         Returns:
             DataFrame con análisis de sensibilidad
+
+        MIGRACIÓN (revisión de pantallas, 2026-07-26): ver nota en
+        `analizar_sensibilidad_area`.
         """
         if variacion_pct is None:
             variacion_pct = [-20, -10, 0, 10, 20]
 
-        from utils.calculador import BudgetCalculator
+        from utils.geometria import Geometria
+        from utils.qto import MotorQTO
 
         resultados = []
         precios = DEFAULT_PRICEBOOK
+        sistema_qto = "icf" if sistema.lower() == "icf" else "isotex"
+        geo = Geometria(area_m2=area_m2)
 
         # Calcular baseline
-        obra_gris_base, obra_terminada_base = BudgetCalculator.calcular_presupuesto_completo(
-            m2=area_m2,
-            sistema=f"Paneles {sistema}" if sistema != "icf" else "ICF Proform",
-            precios=precios,
-            incluir_vigas=True,
-            calidad_terminados="media"
-        )
-        costo_base = obra_gris_base['Subtotal'].sum() + obra_terminada_base['Subtotal'].sum()
+        costo_base = MotorQTO(geo, precios, sistema=sistema_qto).total()
 
         for variacion in variacion_pct:
             factor = 1 + (variacion / 100)
@@ -300,22 +313,49 @@ class AnalisisFinanciero:
     def generar_proyeccion_flujo_caja(cls, area_m2: float, costo_total: float,
                                       horizonte_anios: int = 20,
                                       tasa_crecimiento_energia: float = 0.05,
-                                      tasa_descuento: float = None) -> pd.DataFrame:
+                                      tasa_descuento: float = None,
+                                      costo_tradicional: float = None) -> pd.DataFrame:
         """
         Genera proyección de flujo de caja año por año
 
         Args:
             area_m2: Área de construcción
-            costo_total: Costo total del proyecto
+            costo_total: Costo total del proyecto (EPS/ICF)
             horizonte_anios: Período de proyección
             tasa_crecimiento_energia: Crecimiento anual del costo de energía
             tasa_descuento: Tasa de descuento
+            costo_tradicional: Costo de la alternativa tradicional, para calcular
+                el diferencial real (ver nota de corrección abajo)
 
         Returns:
             DataFrame con proyección anual
+
+        CORRECCIÓN (revisión de pantallas, 2026-07-26)
+        ------------------------------------------------
+        Antes: `acumulado = flujo_neto - costo_total` restaba el costo TOTAL de
+        construir la casa en el año 1, no el diferencial frente a la
+        alternativa tradicional. El resultado: la curva "Flujo de Caja
+        Acumulado" nunca se acercaba a cero en 20 años (quedaba en varios
+        millones de pesos negativos), contradiciendo directamente el ROI
+        positivo que la misma página mostraba arriba, calculado con
+        `calcular_roi()` (ya corregido en la Fase 1 de la auditoría). Dos
+        funciones, los mismos datos de entrada, dos historias contradictorias.
+
+        Ahora se resta el mismo diferencial que usa `calcular_roi()`: si EPS
+        es más barato que lo tradicional, no hay sobrecosto que recuperar
+        (diferencial >= 0) y el año 1 no debe partir de un hueco de millones
+        de pesos que nunca se llena.
         """
         if tasa_descuento is None:
             tasa_descuento = cls.TASA_DESCUENTO_DEFAULT
+
+        if costo_tradicional is not None:
+            diferencial_inicial = costo_tradicional - costo_total
+        else:
+            # Sin punto de comparación, no se puede saber si hay sobrecosto.
+            # Antes esto asumía implícitamente costo_tradicional=0 (peor caso
+            # posible); ahora se asume 0 explícitamente y se documenta.
+            diferencial_inicial = 0.0
 
         datos = []
         energia_mensual = cls.calcular_ahorro_energia_mensual(area_m2, "isotex")
@@ -336,9 +376,10 @@ class AnalisisFinanciero:
             factor_descuento = (1 + tasa_descuento) ** anio
             valor_presente = flujo_neto / factor_descuento
 
-            # Acumulado
+            # Acumulado: parte del diferencial real (0 si EPS ya es más barato),
+            # no del costo total de la construcción.
             if anio == 1:
-                acumulado = flujo_neto - costo_total
+                acumulado = flujo_neto + diferencial_inicial
             else:
                 acumulado = datos[-1]['Acumulado_Nominal'] + flujo_neto
 
@@ -366,43 +407,55 @@ class AnalisisFinanciero:
             usar_vigas_h: Si se incluyen vigas H estructurales
 
         Returns:
-            DataFrame comparativo
+            DataFrame comparativo, con una columna `nota` explicando que el
+            costo no varía por densidad en el modelo actual.
+
+        HALLAZGO (revisión de pantallas, 2026-07-26)
+        -----------------------------------------------
+        Esta función mostraba tres filas ("15kg", "20kg", "25kg") con
+        **costo idéntico** en las tres — la densidad se recibía como
+        parámetro pero nunca entraba en ningún cálculo, así que el gráfico
+        de la Dashboard sugería una comparación real donde no había ninguna.
+        Además, "15kg/20kg/25kg" no corresponde a ninguna especificación real
+        de panel Covintec (sus fichas técnicas dan 2.6-2.8 kg/m² de peso sin
+        aplanar para 3"/4", ver `utils/fuentes.py::FICHA_COVINTEC`) — parece
+        una etiqueta inventada desde el origen, no solo un cálculo faltante.
+
+        Mientras el pricebook no tenga precios reales por espesor de panel,
+        esta función devuelve el costo real (vía MotorQTO) IDÉNTICO para las
+        tres filas, con una columna `nota` que lo explica en vez de fingir
+        una diferencia que no existe.
         """
-        from utils.calculador import BudgetCalculator
+        from utils.geometria import Geometria
+        from utils.qto import MotorQTO
 
         precios = DEFAULT_PRICEBOOK
         densidades = ["15kg", "20kg", "25kg"]
         resultados = []
 
+        sistema_qto = "icf" if "icf" in sistema.lower() else "isotex"
+        motor = MotorQTO(Geometria(area_m2=area_m2), precios, sistema=sistema_qto)
+        comp = motor.comparar_con_tradicional()
+        total = comp["eps"]["costo_total"]
+
         for densidad in densidades:
-            obra_gris = BudgetCalculator.calcular_obra_grisa(
-                m2=area_m2,
-                sistema=sistema,
-                precios=precios,
-                incluir_vigas=usar_vigas_h
-            )
-            obra_terminada = BudgetCalculator.calcular_obra_terminada(
-                area_m2, area_m2 * 2.2, precios, "media"
-            )
-
-            total = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-            comparacion = BudgetCalculator.comparar_sistemas(area_m2, precios)
-
             resultados.append({
                 'Densidad_Panel': densidad,
                 'Costo_Total_RD': total,
                 'Costo_m2_RD': total / area_m2,
-                'Ahorro_vs_Tradicional_RD': comparacion['tradicional']['costo_total'] - total,
-                'Ahorro_Pct': ((comparacion['tradicional']['costo_total'] - total) /
-                              comparacion['tradicional']['costo_total']) * 100,
-                'Peso_kg_m2': 15 if densidad == "15kg" else (20 if densidad == "20kg" else 25)
+                'Ahorro_vs_Tradicional_RD': comp["ahorro"]["total_rd"],
+                'Ahorro_Pct': comp["ahorro"]["total_pct"],
+                'Peso_kg_m2': None,  # sin fuente real para este dato por densidad
+                'nota': ("El pricebook actual no distingue precio por espesor de "
+                        "panel; el costo es el mismo para las tres densidades "
+                        "hasta contar con precios reales por espesor."),
             })
 
         return pd.DataFrame(resultados)
 
     @classmethod
     def calcular_costo_financiamiento(cls, monto: float, tasa_anual: float = 0.15,
-                                     plazo_meses: int = 60) -> Dict:
+                                     plazo_meses: int = 60) -> dict:
         """
         Calcula costos de financiamiento bancario
 
@@ -436,7 +489,7 @@ class AnalisisFinanciero:
         }
 
 
-def calcular_costo_unitario_por_sistema(area_m2: float) -> Dict[str, Dict]:
+def calcular_costo_unitario_por_sistema(area_m2: float) -> dict[str, dict]:
     """
     Compara costos unitarios por m² entre sistemas constructivos
 
@@ -445,36 +498,42 @@ def calcular_costo_unitario_por_sistema(area_m2: float) -> Dict[str, Dict]:
 
     Returns:
         Diccionario con costos por sistema
+
+    MIGRACIÓN (revisión de pantallas, 2026-07-26): última llamada viva al
+    motor clásico que quedaba en toda la app -- alimentaba los dos gráficos
+    de "Distribución de Costos" y "Comparativa Isotex vs ICF" del Dashboard
+    Financiero. Ahora usa MotorQTO; se conserva la forma del diccionario para
+    no tocar los gráficos que lo consumen.
     """
-    from utils.calculador import BudgetCalculator
+    from utils.geometria import Geometria
+    from utils.qto import CATEGORIAS_OBRA_GRIS, MotorQTO
 
     precios = DEFAULT_PRICEBOOK
     resultados = {}
 
-    sistemas = ["Paneles Isotex", "ICF Proform"]
+    sistemas = {"Paneles Isotex": "isotex", "ICF Proform": "icf"}
+    geo = Geometria(area_m2=area_m2)
 
-    for sistema in sistemas:
-        obra_gris, obra_terminada = BudgetCalculator.calcular_presupuesto_completo(
-            m2=area_m2,
-            sistema=sistema,
-            precios=precios,
-            incluir_vigas=True,
-            calidad_terminados="media"
+    for etiqueta, sistema_qto in sistemas.items():
+        motor = MotorQTO(geo, precios, sistema=sistema_qto, calidad="media")
+        df = motor.presupuesto()
+
+        obra_gris_categorias = (
+            df[df["categoria"].isin(CATEGORIAS_OBRA_GRIS)]
+            .groupby("categoria")["subtotal"].sum().to_dict()
+        )
+        obra_term_categorias = (
+            df[~df["categoria"].isin(CATEGORIAS_OBRA_GRIS)]
+            .groupby("categoria")["subtotal"].sum().to_dict()
         )
 
-        total = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-
-        # Desglose por categoría
-        obra_gris_categorias = obra_gris.groupby('Categoria')['Subtotal'].sum().to_dict()
-        obra_term_categorias = obra_terminada.groupby('Categoria')['Subtotal'].sum().to_dict()
-
-        resultados[sistema] = {
-            'costo_total': total,
-            'costo_m2': total / area_m2,
-            'obra_gris_total': obra_gris['Subtotal'].sum(),
-            'obra_terminada_total': obra_terminada['Subtotal'].sum(),
+        resultados[etiqueta] = {
+            'costo_total': motor.total(),
+            'costo_m2': motor.costo_m2(),
+            'obra_gris_total': motor.total_obra_gris(),
+            'obra_terminada_total': motor.total_obra_terminada(),
             'categorias_obra_gris': obra_gris_categorias,
-            'categorias_obra_terminada': obra_term_categorias
+            'categorias_obra_terminada': obra_term_categorias,
         }
 
     return resultados
@@ -491,41 +550,15 @@ class AnalisisFinancieroRD:
     escalonamiento regulado de la tarifa BTS2 (EDES dominicanas).
     """
 
-    # Estructura marginal indexada al mercado dominicano actual (2026)
-    TARIFA_BTS2 = {
-        "fijo":    145.00,   # Cargo fijo mensual (RD$)
-        "bloque_1":  7.20,   # 0–100 kWh
-        "bloque_2":  9.80,   # 101–200 kWh
-        "bloque_3": 13.50,   # 201–300 kWh
-        "bloque_4": 15.20    # >300 kWh
-    }
-
+    # La tabla y el algoritmo de tarifa viven ahora en utils/tarifa.py (fuente
+    # única compartida con utils/energia.py). Se conservan estos alias para no
+    # romper los llamadores existentes.
+    TARIFA_BTS2 = TARIFA_BLOQUES
 
     @classmethod
     def calcular_costo_energia_rd(cls, kwh_mensuales: float) -> float:
-        """Aplica la estructura marginal indexada al mercado dominicano actual."""
-        costo = cls.TARIFA_BTS2["fijo"]
-        if kwh_mensuales <= 100:
-            costo += kwh_mensuales * cls.TARIFA_BTS2["bloque_1"]
-        elif kwh_mensuales <= 200:
-            costo += (
-                (100 * cls.TARIFA_BTS2["bloque_1"])
-                + ((kwh_mensuales - 100) * cls.TARIFA_BTS2["bloque_2"])
-            )
-        elif kwh_mensuales <= 300:
-            costo += (
-                (100 * cls.TARIFA_BTS2["bloque_1"])
-                + (100 * cls.TARIFA_BTS2["bloque_2"])
-                + ((kwh_mensuales - 200) * cls.TARIFA_BTS2["bloque_3"])
-            )
-        else:
-            costo += (
-                (100 * cls.TARIFA_BTS2["bloque_1"])
-                + (100 * cls.TARIFA_BTS2["bloque_2"])
-                + (100 * cls.TARIFA_BTS2["bloque_3"])
-                + ((kwh_mensuales - 300) * cls.TARIFA_BTS2["bloque_4"])
-            )
-        return costo
+        """Costo mensual en RD$ según la estructura marginal por bloques."""
+        return calcular_costo_energia_rd(kwh_mensuales)
 
     @classmethod
     def simular_ahorro_termico(cls, area_m2: float, horas_ac_dia: float = 8.0) -> dict:

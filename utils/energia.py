@@ -1,16 +1,18 @@
-# -*- coding: utf-8 -*-
 """
 Módulo de Análisis de Ahorro Energético para IsoSmart Titanium
 Cálculos de carga térmica, consumo de aire acondicionado y beneficios de aislamiento
 """
 
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+from typing import Dict
 
-from utils.financiera import AnalisisFinancieroRD
+import numpy as np
+import pandas as pd
 
+# Antes: `from utils.financiera import AnalisisFinancieroRD` -> acoplaba el
+# módulo energético al financiero. Ahora ambos dependen de utils/tarifa.py.
+from utils.tarifa import KG_CO2_POR_KWH as _KG_CO2_GRID  # noqa: F401
+from utils.tarifa import calcular_costo_energia_rd
 
 
 @dataclass
@@ -39,34 +41,61 @@ class AnalisisEnergetico:
     TEMP_INTERIOR_DS = 24.0        # °C temperatura interior confort
     DIFERENCIAL_TERMICO = TEMP_EXTERIOR_DS - TEMP_INTERIOR_DS  # 10°C
 
-    # Costos de energía (RD$ por kWh - tarifa promedio EdeSur 2024)
-    COSTO_KWH = 8.50
-    COSTO_KWH_PICO = 12.00        # Tarifa pico
-    HORAS_PICO_DIA = 6
-    HORAS_FUERA_PICO_DIA = 18
+    # NOTA: existían aquí COSTO_KWH=8.50, COSTO_KWH_PICO=12.00, HORAS_PICO_DIA
+    # y HORAS_FUERA_PICO_DIA, una tarifa plana sin fuente, sin usar en ninguna
+    # función del módulo (quedaron huérfanas cuando se unificó la tarifa
+    # eléctrica en utils/tarifa.py, la que sí calcula por bloques marginales
+    # y es la que realmente consume `calcular_consumo_mensual()`).
 
     # Consumo típico de equipos de aire acondicionado (BTU/h → kW)
     BTU_POR_TONELADA = 12000
     KWH_POR_BTU = 0.000293071    # 1 BTU = 0.000293071 kWh
 
     # Eficiencia típica de equipos AC (SEER rating)
+    # NOTA: SEER_ISOTEX/SEER_TRADICIONAL eran constantes muertas -- ninguna
+    # función de esta clase las leía. `calcular_ahorro_energetico()` resuelve
+    # el SEER real desde `calidad_equipo` (economico/standard/inverter/premium).
+    # Se conservan solo como valores de referencia para quien llame a
+    # `calcular_consumo_mensual()` directamente sin especificar `seer`.
     SEER_ISOTEX = 22.0           # Mejor eficiencia por mejor aislamiento
     SEER_TRADICIONAL = 16.0      # Eficiencia estándar
-
-    # Factores de reducción de carga térmica (ISOTEX vs tradicional)
-    FACTOR_REDUCCION_ISOTEX = 0.45   # 55% menos carga térmica
-    FACTOR_REDUCCION_ICF = 0.40      # 60% menos carga térmica
 
     # Emisiones de CO2 por kWh (grid República Dominicana)
     KG_CO2_POR_KWH = 0.4
 
-    # Tarifa de venta de excedentes (net metering)
-    TARIFA_NET_METERING = 6.00   # RD$/kWh
+    # ------------------------------------------------------------------
+    # Reducción de carga térmica: propiedad calculada, no constante muerta.
+    #
+    # ANTES existían `FACTOR_REDUCCION_ISOTEX = 0.45  # 55% menos carga
+    # térmica` y `FACTOR_REDUCCION_ICF = 0.40  # 60% menos carga térmica`,
+    # pero NINGUNA función de este módulo las leía. El "hasta 55%" que
+    # mostraba `paginas/analisis_energetico.py` salía de ese comentario, no
+    # de un cálculo. La reducción real -- la que sí determina el consumo y el
+    # ahorro que ve el usuario -- surge de los coeficientes BTU/h/m³ de
+    # `calcular_carga_termica()` (25 isotex / 22 icf / 45 tradicional) y da
+    # 44.4% y 51.1% respectivamente. Estos coeficientes son estimaciones de
+    # ingeniería sin ficha técnica local citada (a diferencia de los datos de
+    # `utils/fuentes.py::FICHA_COVINTEC`, que sí tienen fuente).
+    # ------------------------------------------------------------------
+    @classmethod
+    def reduccion_carga_termica_pct(cls, sistema: str = "isotex") -> float:
+        """Porcentaje de reducción de carga térmica frente a construcción tradicional."""
+        trad = cls.calcular_carga_termica(100.0, sistema="tradicional")["carga_termica_btu_h"]
+        propio = cls.calcular_carga_termica(100.0, sistema=sistema)["carga_termica_btu_h"]
+        return (1 - propio / trad) * 100.0
+
+    # NOTA: existía aquí `TARIFA_NET_METERING = 6.00 RD$/kWh` (venta de
+    # excedentes solares), pero `calcular_sistema_solar_recomendado()` nunca
+    # la usaba -- el sistema solar se dimensiona por consumo, sin modelar
+    # venta de excedentes. Se retira en vez de dejarla como adorno; si se
+    # implementa venta de excedentes, debe entrar como parámetro citado con
+    # su fuente (pliego tarifario de net metering de la SIE), igual que
+    # `utils/tarifa.py`.
 
     @classmethod
     def calcular_carga_termica(cls, area_m2: float, altura: float = 2.7,
                                sistema: str = "isotex",
-                               orientacion: str = "normal") -> Dict[str, float]:
+                               orientacion: str = "normal") -> dict[str, float]:
         """
         Calcula la carga térmica de refrigeración del edificio
 
@@ -117,7 +146,7 @@ class AnalisisEnergetico:
     @classmethod
     def calcular_consumo_mensual(cls, carga_termica_btu_h: float,
                                   seer: float = 18.0,
-                                  horas_operacion: float = 10.0) -> Dict[str, float]:
+                                  horas_operacion: float = 10.0) -> dict[str, float]:
         """
         Calcula el consumo mensual de energía para aire acondicionado
 
@@ -139,12 +168,8 @@ class AnalisisEnergetico:
         dias_mes = 30
         consumo_mes_kwh = consumo_diario_kwh * dias_mes
 
-        # Distribución pico/fuera de pico
-        horas_pico = cls.HORAS_PICO_DIA
-        horas_fuera_pico = cls.HORAS_FUERA_PICO_DIA
-
         # Simplificado: asume estructura tarifaria dominicana escalonada BTS2
-        consumo_mes_rd = AnalisisFinancieroRD.calcular_costo_energia_rd(consumo_mes_kwh)
+        consumo_mes_rd = calcular_costo_energia_rd(consumo_mes_kwh)
 
         return {
             'consumo_hora_kwh': round(consumo_hora_kwh, 3),
@@ -206,9 +231,40 @@ class AnalisisEnergetico:
         potencia_tradicional = carga_tradicional['carga_termica_btu_h'] / (seer_tradicional * 1000)
         reduccion_pico_kw = potencia_tradicional - potencia_isotex
 
-        # ROI del aislamiento (tiempo en que el ahorro paga el sobrecosto)
-        sobrecosto_isotex = area_m2 * 500  # Estimación RD$/m² sobrecosto por aislamiento
-        roi_anios = sobrecosto_isotex / ahorro_anual_rd if ahorro_anual_rd > 0 else float('inf')
+        # ------------------------------------------------------------------
+        # Payback del aislamiento térmico.
+        #
+        # ANTES: `sobrecosto_isotex = area_m2 * 500` -- un cuarto modelo de
+        # ROI, desconectado tanto del motor de presupuesto (utils/qto.py)
+        # como del ROI financiero ya corregido en utils/financiera.py
+        # (Fase 1 de la auditoría). El "RD$500/m² de sobrecosto por
+        # aislamiento" no citaba ninguna fuente.
+        #
+        # Con el motor QTO, EPS/ICF sale MÁS BARATO que la construcción
+        # tradicional en obra gris (ver docs/BASE_TECNICA_EPS_ICF.md), así
+        # que no existe, en general, un "sobrecosto" que recuperar: el
+        # ahorro es inmediato. Solo si el diferencial de costo saliera
+        # negativo (EPS más caro que lo tradicional para ese proyecto
+        # puntual) tendría sentido hablar de un período de recuperación.
+        # ------------------------------------------------------------------
+        try:
+            from utils.geometria import Geometria
+            from utils.pricebook import DEFAULT_PRICEBOOK
+            from utils.qto import MotorQTO
+
+            geo = Geometria(area_m2=area_m2)
+            motor = MotorQTO(geo, DEFAULT_PRICEBOOK,
+                             sistema="icf" if sistema.lower() == "icf" else "isotex")
+            comp = motor.comparar_con_tradicional()
+            diferencial_inicial = comp["tradicional"]["costo_total"] - comp["eps"]["costo_total"]
+        except Exception:
+            diferencial_inicial = 0.0  # no bloquear el análisis energético si el QTO falla
+
+        if diferencial_inicial >= 0:
+            roi_anios = 0.0  # sin sobrecosto: el ahorro de obra gris ya cubre la diferencia
+        else:
+            sobrecosto = -diferencial_inicial
+            roi_anios = sobrecosto / ahorro_anual_rd if ahorro_anual_rd > 0 else float('inf')
 
         # CO2 evitado
         co2_evitado_anual = ahorro_mensual_kwh * 12 * cls.KG_CO2_POR_KWH
@@ -267,7 +323,7 @@ class AnalisisEnergetico:
         return pd.DataFrame(datos)
 
     @classmethod
-    def calcular_sistema_solar_recomendado(cls, area_m2: float) -> Dict:
+    def calcular_sistema_solar_recomendado(cls, area_m2: float) -> dict:
         """
         Calcula recomendación de sistema solar para complementar el ahorro
 
@@ -307,11 +363,11 @@ class AnalisisEnergetico:
             'autoconsumo_pct': min(100, (num_paneles * energia_panel_mes_kwh / consumo_mensual) * 100),
             'costo_estimado_rd': round(costo_total, 2),
             'costo_por_panel_rd': round(costo_total / num_paneles, 2),
-            'ahorro_solar_mensual_rd': round(AnalisisFinancieroRD.calcular_costo_energia_rd(min(consumo_mensual, num_paneles * energia_panel_mes_kwh)), 2)
+            'ahorro_solar_mensual_rd': round(calcular_costo_energia_rd(min(consumo_mensual, num_paneles * energia_panel_mes_kwh)), 2)
         }
 
     @classmethod
-    def calcular_tamano_ac_recomendado(cls, area_m2: float, sistema: str = "isotex") -> Dict:
+    def calcular_tamano_ac_recomendado(cls, area_m2: float, sistema: str = "isotex") -> dict:
         """
         Calcula el tamaño recomendado de equipo de AC
 

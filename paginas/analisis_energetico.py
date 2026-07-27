@@ -1,64 +1,28 @@
-# -*- coding: utf-8 -*-
 """
 IsoSmart Titanium - Módulo de Ahorro Energético
 Análisis de carga térmica, consumo de AC y beneficios del aislamiento
 """
 
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-import sys
 import os
+import sys
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+from plotly.subplots import make_subplots
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.energia import AnalisisEnergetico
+from utils.estilos import inyectar_css, tarjeta_metrica  # noqa: E402
 
 # Configuración de página
-st.set_page_config(
-    page_title="Análisis Energético - IsoSmart Titanium",
-    page_icon="⚡",
-    layout="wide"
-)
+# st.set_page_config() lo llama app.py: solo puede invocarse una vez por sesión.
+# Este módulo ahora se importa desde el router unificado, no se ejecuta suelto.
 
 # CSS personalizado
-st.markdown("""
-<style>
-    .energy-card {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        padding: 1.5rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        margin: 0.5rem 0;
-    }
-    .energy-card.blue {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    }
-    .energy-card.orange {
-        background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-    }
-    .energy-card.purple {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
-    .section-header {
-        background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%);
-        padding: 1rem 1.5rem;
-        border-radius: 10px;
-        color: white;
-        margin: 2rem 0 1rem 0;
-    }
-    .savings-highlight {
-        background: linear-gradient(135deg, #38ef7d 0%, #11998e 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-    }
-</style>
-""", unsafe_allow_html=True)
+inyectar_css()   # hoja de estilos única: .streamlit/estilos.css
 
 
 def format_rd(value: float) -> str:
@@ -74,14 +38,8 @@ def format_kg(value: float) -> str:
 
 
 def render_energy_card(label: str, value: str, subtext: str = "", card_class: str = ""):
-    card_class_css = f"energy-card {card_class}"
-    st.markdown(f"""
-    <div class="{card_class_css}">
-        <p style="font-size: 2.5rem; font-weight: bold; margin: 0;">{value}</p>
-        <p style="font-size: 1rem; opacity: 0.9; margin: 5px 0 0 0;">{label}</p>
-        {f'<p style="font-size: 0.8rem; opacity: 0.8;">{subtext}</p>' if subtext else ''}
-    </div>
-    """, unsafe_allow_html=True)
+    """Delegado a utils.estilos (antes era render_metric_card copiada con otro nombre)."""
+    tarjeta_metrica(label, value, subtext, card_class, clase_base="energy-card")
 
 
 def grafico_carga_termica_comparativa(area: float) -> go.Figure:
@@ -278,11 +236,17 @@ def main():
 
         st.divider()
 
-        st.markdown("""
+        # ANTES: texto fijo "reducen la carga térmica hasta 55%", que citaba
+        # una constante muerta (FACTOR_REDUCCION_ISOTEX, nunca usada por el
+        # cálculo real). El cálculo real da 44.4% para isotex y 51.1% para
+        # ICF -- ahora se muestra el número que realmente se está calculando.
+        reduccion_pct = AnalisisEnergetico.reduccion_carga_termica_pct(sistema_analisis)
+        st.markdown(f"""
         <div style="background: #f0f2f6; padding: 15px; border-radius: 10px; font-size: 0.9rem;">
             <strong>💡 Beneficios del Aislamiento:</strong><br>
-            Los sistemas ISOTEX reducen la carga térmica hasta 55% vs construcción tradicional,
-            lo que se traduce en equipos de AC más pequeños y menor consumo.
+            El sistema {sistema_analisis.upper()} reduce la carga térmica en {reduccion_pct:.1f}%
+            frente a construcción tradicional (estimación de ingeniería, ver
+            <code>utils/energia.py</code>), lo que permite equipos de AC más pequeños.
         </div>
         """, unsafe_allow_html=True)
 
@@ -345,12 +309,12 @@ def main():
         st.plotly_chart(fig_consumo, use_container_width=True)
 
     # ===== SECCIÓN 3: Detalle de Carga Térmica =====
-    st.markdown("""
+    st.markdown(f"""
     <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 10px; margin: 1rem 0;">
-        <h3>🌡️ Detalle de Carga Térmica - Sistema {}</h3>
-        <p>Para una construcción de <strong>{} m²</strong> con techo de 2.7m de altura:</p>
+        <h3>🌡️ Detalle de Carga Térmica - Sistema {sistema_analisis.upper()}</h3>
+        <p>Para una construcción de <strong>{area} m²</strong> con techo de 2.7m de altura:</p>
     </div>
-    """.format(sistema_analisis.upper(), area), unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
     col_d1, col_d2, col_d3, col_d4 = st.columns(4)
 
@@ -498,5 +462,3 @@ def main():
     """, unsafe_allow_html=True)
 
 
-if __name__ == "__main__":
-    main()

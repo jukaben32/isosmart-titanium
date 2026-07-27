@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests del módulo financiero (utils/financiera.py).
 
@@ -12,6 +11,7 @@ Ejecutar:
 """
 
 import sys
+
 sys.path.insert(0, ".")
 
 from utils.financiera import (

@@ -6,7 +6,7 @@ from typing import Optional
 from PIL import Image
 
 
-def pdf_first_page_to_image(pdf_bytes: bytes, dpi: int = 150) -> Optional[Image.Image]:
+def pdf_first_page_to_image(pdf_bytes: bytes, dpi: int = 150) -> Image.Image | None:
     """
     Convierte la primera página de un PDF a imagen (PIL).
     Requiere PyMuPDF.

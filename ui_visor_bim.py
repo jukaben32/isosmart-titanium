@@ -1,55 +1,12 @@
-# -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import google.generativeai as genai
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime, date
-from fpdf import FPDF
-import base64
-import json
 import os
-from io import BytesIO
-from typing import Dict, List, Optional, Tuple
-import hashlib
-import time
 
-from utils.pricebook import Pricebook
-from utils.storage import list_dict_values, read_json, write_json_atomic
-from utils.gemini_plan import analyze_plan_image_with_gemini
-from utils.plan_geometry import (
-    polygon_area_perimeter,
-    polygon_from_canvas,
-    scale_from_canvas_line,
-    extract_line_segments,
-    extract_points,
-)
-from utils.pdf_utils import pdf_first_page_to_image
+import plotly.graph_objects as go
+import streamlit as st
+
 from utils.catalog import Catalog
-from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
-from utils.ai_media import generate_facade_image_fal, generate_video_luma
-from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
-from utils.calculador import BudgetCalculator
-from utils.energia import AnalisisEnergetico
 
 # Helpers compartidos desde ui_core
-from ui_core import (
-    sincronizar_parametros_globales,
-    ProjectManager,
-    PDFGenerator,
-    create_download_link,
-    initialize_gemini,
-    get_gemini_api_key_from_config,
-    get_fal_key_from_config,
-    get_luma_key_from_config,
-    init_text_design_state,
-    render_text_design_assistant,
-    estimate_build_time_days,
-    estimate_foundation_volume_m3,
-    calc_h_beams_kg,
-)
 
 def _mesh_box(x0, x1, y0, y1, z0, z1):
     # Devuelve puntos para un cubo/ prisma rectangular en plotly Mesh3d
@@ -130,6 +87,13 @@ def pagina_visor_bim():
 
     # Coordenadas: (0..L, 0..W) y altura por nivel.
     total_h = altura_muro * niveles
+    # Espesor de muro para el visor 3D (solo visual, no afecta el
+    # presupuesto). 12 cm cae dentro del rango real de pared terminada
+    # MPanel (90-270 mm según espesor de EPS elegido, ver
+    # utils.fuentes.FICHA_ISOTEX_DOMINICANA) -- un valor representativo,
+    # no medido para este proyecto en particular. El motor QTO no rastrea
+    # espesor de EPS como variable, así que este visor no puede ser más
+    # preciso que "un valor típico dentro del rango real".
     wall_th = 0.12
     beam_th = 0.20
 

@@ -1,0 +1,112 @@
+/* ==========================================================================
+   IsoSmart Titanium — hoja de estilos única
+   --------------------------------------------------------------------------
+   Antes había 43 bloques `unsafe_allow_html=True` repartidos en siete archivos,
+   con dos <style> completos duplicados entre el Dashboard Financiero y el
+   Análisis Energético. Cambiar un color de marca obligaba a buscarlo por todo
+   el repositorio.
+
+   Se carga una sola vez con `utils.estilos.inyectar_css()`.
+   ========================================================================== */
+
+:root {
+    --iso-azul: #1e3c72;
+    --iso-azul-claro: #2a5298;
+    --iso-verde: #11998e;
+    --iso-verde-claro: #38ef7d;
+    --iso-naranja: #f5576c;
+    --iso-rosa: #f093fb;
+    --iso-cyan: #4facfe;
+    --iso-cyan-claro: #00f2fe;
+    --iso-violeta: #667eea;
+    --iso-violeta-osc: #764ba2;
+    --iso-gris: #f0f2f6;
+    --iso-radio: 15px;
+}
+
+/* --- tarjetas de métrica ------------------------------------------------- */
+.metric-card,
+.energy-card {
+    background: linear-gradient(135deg, var(--iso-violeta) 0%, var(--iso-violeta-osc) 100%);
+    padding: 1.5rem;
+    border-radius: var(--iso-radio);
+    color: #fff;
+    text-align: center;
+    margin: 0.5rem 0;
+}
+
+.metric-card.green,  .energy-card.green  { background: linear-gradient(135deg, var(--iso-verde) 0%, var(--iso-verde-claro) 100%); }
+.metric-card.orange, .energy-card.orange { background: linear-gradient(135deg, var(--iso-rosa) 0%, var(--iso-naranja) 100%); }
+.metric-card.blue,   .energy-card.blue   { background: linear-gradient(135deg, var(--iso-cyan) 0%, var(--iso-cyan-claro) 100%); }
+
+.metric-value,
+.energy-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.metric-label,
+.energy-label {
+    font-size: 1rem;
+    opacity: 0.9;
+    margin: 5px 0 0 0;
+}
+
+.metric-sub,
+.energy-sub {
+    font-size: 0.85rem;
+    opacity: 0.85;
+    margin: 4px 0 0 0;
+}
+
+/* --- encabezados de sección ---------------------------------------------- */
+.section-header,
+.page-header {
+    background: linear-gradient(90deg, var(--iso-azul) 0%, var(--iso-azul-claro) 100%);
+    padding: 1rem 1.5rem;
+    border-radius: 10px;
+    color: #fff;
+    margin: 2rem 0 1rem 0;
+}
+
+.page-header {
+    padding: 2rem;
+    border-radius: var(--iso-radio);
+    margin-bottom: 2rem;
+}
+
+.page-header h1 { color: #fff; margin: 0; }
+.page-header p  { color: #fff; opacity: 0.9; margin: 10px 0 0 0; }
+
+/* --- avisos y cajas informativas ----------------------------------------- */
+.info-box {
+    background: var(--iso-gris);
+    padding: 15px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+}
+
+.warning-box {
+    background: #fff4e5;
+    border-left: 4px solid #ff9800;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin: 1rem 0;
+}
+
+/* --- botones de descarga embebidos --------------------------------------- */
+.iso-btn {
+    width: 100%;
+    border-radius: 10px;
+    color: #fff;
+    padding: 15px;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.iso-btn--verde    { background-color: #28a745; }
+.iso-btn--excel    { background-color: #27ae60; }
+.iso-btn--whatsapp { background-color: #25d366; }

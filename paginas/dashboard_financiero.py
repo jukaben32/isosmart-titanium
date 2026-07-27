@@ -1,69 +1,35 @@
-# -*- coding: utf-8 -*-
 """
-IsoSmart Titanium - Dashboard Financiero
+IsoSmart Titanium - Dashboard Financiero (invocado desde app.py)
 Análisis avanzado de ROI, VAN, TIR, sensibilidad y proyecciones
 """
 
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-import sys
 import os
+import sys
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+from plotly.subplots import make_subplots
 
 # Agregar el directorio raíz al path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Antes: `from app import BudgetCalculator` -> import circular hacia el punto de
+# entrada. Dejó de resolver en cuanto se limpiaron los imports muertos de app.py.
+# Ahora esta página usa el motor de cantidades (utils/qto.py), no el clásico.
+from utils.geometria import Geometria
+from utils.qto import MotorQTO
+from utils.estilos import caja_info, encabezado, inyectar_css, tarjeta_metrica  # noqa: E402
 from utils.financiera import AnalisisFinanciero, calcular_costo_unitario_por_sistema
-from app import BudgetCalculator
+from utils.pricebook import Pricebook  # noqa: E402  (requiere el sys.path de arriba)
 
 # Configuración de página
-st.set_page_config(
-    page_title="Dashboard Financiero - IsoSmart Titanium",
-    page_icon="📊",
-    layout="wide"
-)
+# st.set_page_config() lo llama app.py: solo puede invocarse una vez por sesión.
+# Este módulo ahora se importa desde el router unificado, no se ejecuta suelto.
 
 # CSS personalizado
-st.markdown("""
-<style>
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        margin: 0.5rem 0;
-    }
-    .metric-card.green {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-    }
-    .metric-card.orange {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    }
-    .metric-card.blue {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    }
-    .metric-value {
-        font-size: 2.5rem;
-        font-weight: bold;
-        margin: 0;
-    }
-    .metric-label {
-        font-size: 1rem;
-        opacity: 0.9;
-        margin: 5px 0 0 0;
-    }
-    .section-header {
-        background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
-        padding: 1rem 1.5rem;
-        border-radius: 10px;
-        color: white;
-        margin: 2rem 0 1rem 0;
-    }
-</style>
-""", unsafe_allow_html=True)
+inyectar_css()   # hoja de estilos única: .streamlit/estilos.css
 
 
 def format_rd(value: float) -> str:
@@ -77,15 +43,8 @@ def format_pct(value: float) -> str:
 
 
 def render_metric_card(label: str, value: str, subtext: str = "", card_class: str = ""):
-    """Renderiza una tarjeta de métrica estilizada"""
-    card_class_css = f"metric-card {card_class}"
-    st.markdown(f"""
-    <div class="{card_class_css}">
-        <p class="metric-value">{value}</p>
-        <p class="metric-label">{label}</p>
-        {f'<p style="font-size:0.8rem; opacity:0.8;">{subtext}</p>' if subtext else ''}
-    </div>
-    """, unsafe_allow_html=True)
+    """Delegado a utils.estilos: el CSS y el escapado viven en un solo sitio."""
+    tarjeta_metrica(label, value, subtext, card_class, clase_base="metric-card")
 
 
 def grafico_roi_tiempo(flujos: list, horizonte: int) -> go.Figure:
@@ -279,14 +238,8 @@ def grafico_comparativa_densidades(df_densidades: pd.DataFrame) -> go.Figure:
 
 
 def main():
-    st.markdown("""
-    <div style="background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%); padding: 2rem; border-radius: 15px; margin-bottom: 2rem;">
-        <h1 style="color: white; margin: 0;">📊 Dashboard Financiero</h1>
-        <p style="color: white; opacity: 0.9; margin: 10px 0 0 0;">
-            Análisis completo de ROI,VAN, TIR y comparativas de inversión
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    encabezado("📊 Dashboard Financiero",
+               "Análisis completo de ROI, VAN, TIR y comparativas de inversión")
 
     # Sidebar - Configuración
     with st.sidebar:
@@ -296,7 +249,7 @@ def main():
 
         sistema = st.selectbox("🏗️ Sistema", ["Paneles Isotex", "ICF Proform"])
 
-        calidad = st.selectbox("🎨 Calidad", ["económica", "media", "alta", "lujo"])
+        calidad = st.selectbox("🎨 Calidad", ["economica", "media", "alta", "lujo"])
 
         st.divider()
 
@@ -308,31 +261,31 @@ def main():
 
         st.divider()
 
-        st.markdown("""
-        <div style="background: #f0f2f6; padding: 15px; border-radius: 10px; font-size: 0.9rem;">
-            <strong>💡 Nota:</strong><br>
-            Este análisis compara el costo total de propiedad a lo largo del tiempo,
-            incluyendo ahorro energético y mantenimiento.
-        </div>
-        """, unsafe_allow_html=True)
+        caja_info("Este análisis compara el costo total de propiedad a lo largo del tiempo, incluyendo ahorro energético y mantenimiento.", "💡 Nota")
 
     # Calcular datos base — se obtienen precios desde session_state o defaults
-    precios_dash = st.session_state.get("precios_sincronizados") or {
-        "Panel_Muro": 925.0, "Panel_Techo": 1125.0, "H_3000_PSI": 7350.0,
-        "H_3500_PSI": 7950.0, "Viga_H_kg": 105.0, "Acero_Varilla": 85.0,
-        "Ceramica_m2": 450.0, "Pintura_galon": 1200.0,
-    }
-    obra_gris, obra_terminada = BudgetCalculator.calcular_presupuesto_completo(
-        m2=area,
-        sistema=sistema,
-        precios=precios_dash,
-        incluir_vigas=True,
-        calidad_terminados=calidad
+    # FUENTE ÚNICA de precios: antes esta página tenía su propio diccionario de
+    # 8 precios hardcodeados, la cuarta copia del pricebook en el repositorio.
+    precios_dash = (
+        st.session_state.get("precios_sincronizados")
+        or Pricebook(os.path.join("data", "pricebook.json")).load()
     )
+    # ------------------------------------------------------------------
+    # Motor de cálculo: MotorQTO (antes: BudgetCalculator, motor clásico)
+    #
+    # Igual que en ui_calculadora.py (revisión de pantallas, 2026-07-26): esta
+    # página calculaba el ROI/VAN/TIR mostrado sobre costos del motor
+    # clásico (9.6% de obra terminada, ahorro fijo del 83.6%), aunque la
+    # fórmula de `calcular_roi()` ya estaba corregida desde la Fase 1. La
+    # fórmula era correcta; los números que recibía, no.
+    # ------------------------------------------------------------------
+    geo = Geometria(area_m2=area)
+    sistema_qto = "icf" if "icf" in sistema.lower() else "isotex"
+    motor = MotorQTO(geo, precios_dash, sistema=sistema_qto, calidad=calidad)
+    comparacion = motor.comparar_con_tradicional()
 
-    total_isotex = obra_gris['Subtotal'].sum() + obra_terminada['Subtotal'].sum()
-    comparacion = BudgetCalculator.comparar_sistemas(area, precios_dash, sistema, False, calidad)
-    total_tradicional = comparacion['tradicional']['costo_total']
+    total_isotex = comparacion["eps"]["costo_total"]
+    total_tradicional = comparacion["tradicional"]["costo_total"]
 
     # Análisis ROI
     resultado_roi = AnalisisFinanciero.calcular_roi(
@@ -487,7 +440,9 @@ def main():
         costo_total=total_isotex,
         horizonte_anios=20,
         tasa_crecimiento_energia=0.05,
-        tasa_descuento=tasa_descuento
+        tasa_descuento=tasa_descuento,
+        costo_tradicional=total_tradicional,  # antes ausente -> el flujo acumulado
+                                              # nunca se acercaba a cero en 20 años
     )
 
     col_f1, col_f2 = st.columns([2, 1])
@@ -621,5 +576,3 @@ def main():
     """, unsafe_allow_html=True)
 
 
-if __name__ == "__main__":
-    main()

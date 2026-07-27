@@ -1,20 +1,5 @@
-# -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
 import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import google.generativeai as genai
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime, date
-from fpdf import FPDF
-import base64
-import json
-import os
-from io import BytesIO
-from typing import Dict, List, Optional, Tuple
-import hashlib
-import time
 
 # Configuracion de la pagina (debe ser la PRIMERA llamada a Streamlit)
 st.set_page_config(
@@ -24,87 +9,109 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from utils.pricebook import Pricebook
-from utils.storage import list_dict_values, read_json, write_json_atomic
-from utils.gemini_plan import analyze_plan_image_with_gemini
-from utils.plan_geometry import (
-    polygon_area_perimeter,
-    polygon_from_canvas,
-    scale_from_canvas_line,
-    extract_line_segments,
-    extract_points,
-)
-from utils.pdf_utils import pdf_first_page_to_image
-from utils.catalog import Catalog
-from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
-from utils.ai_media import generate_facade_image_fal, generate_video_luma
-from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
-from utils.calculador import BudgetCalculator
-from utils.energia import AnalisisEnergetico
 
 # Módulos de interfaz (refactor de app.py, 2026-07-10)
-from ui_core import sincronizar_parametros_globales, ProjectManager, PDFGenerator, create_download_link
-from ui_vision import render_integradora_vision_canvas
-from ui_presupuesto import render_pestana_pricebook, render_vista_presupuesto_y_roi, pagina_panel_operativo
-from ui_inicio import pagina_inicio
-from ui_team import pagina_team
 from ui_calculadora import (
-    render_modulo_vision_y_canvas,
     pagina_calculadora,
     pagina_contacto,
-    render_pestana_configuracion_precios,
     pagina_plano_estructura,
 )
+from ui_inicio import pagina_inicio
+from ui_presupuesto import (
+    pagina_panel_operativo,
+    pagina_presupuesto_detallado,
+)
+from ui_team import pagina_team
 from ui_visor_bim import pagina_visor_bim
+from utils.estado import ProyectoState
+from utils.estilos import caja_info, inyectar_css
 
 try:
     from streamlit_drawable_canvas import st_canvas
 except Exception:
     st_canvas = None
 
+PAGINAS = {}
+
+
+def _registrar_paginas():
+    """Tabla única de navegación. Añadir una página es añadir una entrada aquí."""
+    PAGINAS.update({
+        "🏠 Inicio": pagina_inicio,
+        "👷 Nuestro Team": pagina_team,
+        "🧮 Calculadora": pagina_calculadora,
+        "🧾 Presupuesto Detallado": pagina_presupuesto_detallado,
+        "📐 Plano → Estructura": pagina_plano_estructura,
+        "🧱 Visor BIM 3D": pagina_visor_bim,
+        "📊 Dashboard Financiero": _pagina_dashboard_financiero,
+        "⚡ Análisis Energético": _pagina_analisis_energetico,
+        "🎛️ Panel Operativo": pagina_panel_operativo,
+        "📞 Contacto": pagina_contacto,
+    })
+
+
+def _pagina_dashboard_financiero():
+    """Envuelve pages/1_Dashboard_Financiero.py para el router unificado."""
+    import importlib
+
+    modulo = importlib.import_module("paginas.dashboard_financiero")
+    modulo.main()
+
+
+def _pagina_analisis_energetico():
+    import importlib
+
+    modulo = importlib.import_module("paginas.analisis_energetico")
+    modulo.main()
+
+
 def main():
-    # Menú de navegación
+    """
+    Router único.
+
+    ANTES coexistían DOS sistemas de navegación: este menú `st.radio` y la
+    carpeta `pages/`, que Streamlit convierte automáticamente en navegación
+    multipágina. El usuario veía dos barras laterales con contenidos distintos,
+    y las páginas de `pages/` no compartían el estado del menú principal (el
+    Dashboard pedía el área otra vez con su propio slider).
+
+    Ahora hay un solo menú. Las páginas antiguas siguen accesibles desde aquí.
+    """
+    inyectar_css()
+
     with st.sidebar:
         st.image("https://img.icons8.com/color/96/construction.png", width=80)
         st.markdown("### 🏗️ IsoSmart Titanium")
 
-        menu = st.radio(
+        seccion = st.radio(
             "Navegación",
-            ["🏠 Inicio", "👷 Nuestro Team", "🧮 Calculadora", "📐 Plano → Estructura", "🧱 Visor BIM 3D", "🎛️ Panel Operativo", "📞 Contacto"],
-            label_visibility="collapsed"
+            list(PAGINAS.keys()),
+            label_visibility="collapsed",
         )
 
         st.divider()
 
-        # Información rápida
-        st.markdown("""
-        <div style="background:#f0f2f6; padding:15px; border-radius:10px;">
-            <strong>💡 ¿Sabías qué?</strong><br>
-            El poliestireno expandido puede reducir hasta 30% los costos de construcción
-            comparado con el método tradicional.
-        </div>
-        """, unsafe_allow_html=True)
+        estado = ProyectoState.cargar()
+        st.caption("Proyecto actual")
+        st.metric("Área", f"{estado.area_m2:,.0f} m²")
+        if estado.origen_metricas:
+            st.caption(f"Dimensiones desde: {estado.origen_metricas}")
 
-    # Router de páginas
-    if menu == "🏠 Inicio":
-        pagina_inicio()
-    elif menu == "👷 Nuestro Team":
-        pagina_team()
-    elif menu == "🧮 Calculadora":
-        pagina_calculadora()
-    elif menu == "📐 Plano → Estructura":
-        pagina_plano_estructura()
-    elif menu == "🧱 Visor BIM 3D":
-        pagina_visor_bim()
-    elif menu == "🎛️ Panel Operativo":
-        pagina_panel_operativo()
-    elif menu == "📞 Contacto":
-        pagina_contacto()
+        st.divider()
+        caja_info(
+            "El poliestireno expandido puede reducir 20-40% el costo de OBRA GRIS "
+            "frente al método tradicional. Los acabados son equivalentes.",
+            "💡 ¿Sabías qué?",
+        )
+
+    PAGINAS[seccion]()
 
 
 # ============================================================================
 # PUNTO DE ENTRADA
 # ============================================================================
+
+_registrar_paginas()
 
 if __name__ == "__main__":
     main()

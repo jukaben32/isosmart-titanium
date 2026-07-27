@@ -1,0 +1,47 @@
+[project]
+name = "isosmart-titanium"
+version = "4.6.0"
+description = "Sistema inteligente de presupuestos y visualización BIM para construcción con EPS/ICF"
+requires-python = ">=3.11"
+
+# ---------------------------------------------------------------------------
+# Ruff
+#
+# El repositorio no tenía linter. `ruff check` reportaba 379 avisos, entre ellos
+# los siete usos de `st_canvas` sin importar que tumbaban dos páginas enteras.
+# Con esto en CI, ese bug no habría llegado nunca a main.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [".venv", "venv", "docs"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes  <- F821 (undefined name) es el que atrapa los NameError
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+]
+ignore = [
+    "E501",  # longitud de línea: ya la controla line-length
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Las páginas de Streamlit necesitan manipular sys.path antes de importar utils.
+"pages/*.py" = ["E402"]
+"paginas/*.py" = ["E402"]
+
+# ---------------------------------------------------------------------------
+# Pytest
+#
+# Los tests eran scripts sueltos con asserts y print("[OK]"), invocados a mano.
+# Nadie notó que tests/test_ai_text_design.py llevaba tiempo roto.
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

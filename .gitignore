@@ -9,6 +9,7 @@ env/
 # Entorno y secretos (NUNCA subir)
 .env
 .env.*
+!.env.example
 secrets.toml
 
 # Logs de Streamlit
@@ -24,3 +25,9 @@ Thumbs.db
 
 # Temporal de verificacion Hermes
 hermes-verify-*.py
+
+# Datos de clientes generados en runtime (PII) - NUNCA subir
+data/leads_db.json
+data/projects_db.json
+data/*_db.json
+*.sqlite3

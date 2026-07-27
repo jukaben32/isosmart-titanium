@@ -1,81 +1,79 @@
-# -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import google.generativeai as genai
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime, date
-from fpdf import FPDF
 import base64
-import json
+import html
 import os
-from io import BytesIO
-from typing import Dict, List, Optional, Tuple
-import hashlib
-import time
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from utils.pricebook import Pricebook
-from utils.storage import list_dict_values, read_json, write_json_atomic
-from utils.gemini_plan import analyze_plan_image_with_gemini
-from utils.plan_geometry import (
-    polygon_area_perimeter,
-    polygon_from_canvas,
-    scale_from_canvas_line,
-    extract_line_segments,
-    extract_points,
-)
-from utils.pdf_utils import pdf_first_page_to_image
-from utils.catalog import Catalog
-from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
+import google.generativeai as genai
+import streamlit as st
+
 from utils.ai_media import generate_facade_image_fal, generate_video_luma
-from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
-from utils.calculador import BudgetCalculator
-from utils.energia import AnalisisEnergetico
+from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
+from utils.estado import ProyectoState
+from utils.floor_plan import generar_esquema_svg
+from utils.pricebook import DEFAULT_PRICEBOOK
+from utils.qto import MotorQTO
+from utils.repositorio import RepositorioSQLite, obtener_repositorio
+
+# ---------------------------------------------------------------------------
+# Componente opcional de lienzo interactivo.
+#
+# FUENTE ÚNICA: este try/except vivía solo en app.py, pero ui_calculadora.py y
+# ui_vision.py usaban `st_canvas` sin importarlo -> NameError en cuanto el
+# usuario subía un plano. Ahora se define aquí y todos importan desde ui_core.
+# ---------------------------------------------------------------------------
+try:
+    from streamlit_drawable_canvas import st_canvas
+except Exception:  # pragma: no cover - depende del entorno de despliegue
+    st_canvas = None
+
 
 class ProjectManager:
-    """Gestor de proyectos con persistencia local"""
+    """
+    Gestor de proyectos y leads.
+
+    Ahora delega en `utils.repositorio` (SQLite por defecto, Supabase si hay
+    credenciales) en vez de escribir JSON al disco local. Motivo: en Streamlit
+    Cloud el sistema de archivos es efímero y cada reinicio borraba los leads
+    capturados. Se mantiene la misma API pública para no tocar los llamadores.
+    """
 
     def __init__(self, base_dir: str = "data"):
         self.base_dir = base_dir
-        self.storage_file = os.path.join(self.base_dir, "projects_db.json")
-        self.leads_file = os.path.join(self.base_dir, "leads_db.json")
-        self.projects = self._load_projects()
-        self.leads = self._load_leads()
+        self.repo = obtener_repositorio()
+        self._sqlite = self.repo if isinstance(self.repo, RepositorioSQLite) else RepositorioSQLite()
 
-    def _load_projects(self) -> Dict:
-        return read_json(self.storage_file, default={})
+    # -- leads -----------------------------------------------------------
+    @property
+    def leads(self) -> list[dict]:
+        try:
+            return self.repo.listar()
+        except Exception:
+            return []
 
-    def _load_leads(self) -> List:
-        return read_json(self.leads_file, default=[])
+    def save_lead(self, lead_data: dict):
+        """Guarda un lead interesado."""
+        lead_data = dict(lead_data)
+        lead_data.setdefault("fecha", datetime.now().isoformat())
+        return self.repo.guardar(lead_data)
 
-    def save_lead(self, lead_data: Dict):
-        """Guarda un lead interesado"""
-        lead_data['fecha'] = datetime.now().isoformat()
-        lead_data['id'] = hashlib.md5(
-            f"{lead_data['nombre']}{lead_data['fecha']}".encode()
-        ).hexdigest()[:8]
-        self.leads.append(lead_data)
-        write_json_atomic(self.leads_file, self.leads)
+    # -- proyectos -------------------------------------------------------
+    @property
+    def projects(self) -> dict:
+        return {p["id"]: p for p in self._sqlite.listar_proyectos()}
 
-    def save_project(self, project_id: str, data: Dict):
-        self.projects[project_id] = {
-            **data,
-            'updated_at': datetime.now().isoformat()
-        }
-        write_json_atomic(self.storage_file, self.projects)
+    def save_project(self, project_id: str, data: dict):
+        self._sqlite.guardar_proyecto(project_id, data)
 
-    def get_project(self, project_id: str) -> Optional[Dict]:
-        return self.projects.get(project_id)
+    def get_project(self, project_id: str) -> dict | None:
+        return self._sqlite.obtener_proyecto(project_id)
 
-    def list_projects(self) -> List[Dict]:
-        return list_dict_values(self.projects)
+    def list_projects(self) -> list[dict]:
+        return self._sqlite.listar_proyectos()
 
     def delete_project(self, project_id: str):
-        if project_id in self.projects:
-            del self.projects[project_id]
-            write_json_atomic(self.storage_file, self.projects)
+        self._sqlite.eliminar_proyecto(project_id)
 
 
 # ============================================================================
@@ -83,96 +81,32 @@ class ProjectManager:
 # ============================================================================
 
 
-class PDFGenerator:
-    """Generador de documentos PDF profesionales"""
-
-    def __init__(self):
-        self.pdf = FPDF()
-        self.pdf.set_auto_page_break(auto=True, margin=15)
-
-    def generar_propuesta(self, cliente: str, datos_proyecto: Dict,
-                         presupuesto_df: pd.DataFrame, total: float) -> bytes:
-        self.pdf.add_page()
-
-        # Encabezado
-        self.pdf.set_fill_color(30, 60, 114)
-        self.pdf.rect(0, 0, 210, 40, 'F')
-
-        self.pdf.set_font('Arial', 'B', 20)
-        self.pdf.set_text_color(255, 255, 255)
-        self.pdf.cell(190, 15, 'IsoSmart Titanium', ln=True, align='C')
-
-        self.pdf.set_font('Arial', '', 12)
-        self.pdf.cell(190, 10, 'Propuesta Técnica Comercial', ln=True, align='C')
-
-        self.pdf.ln(20)
-
-        # Información del cliente
-        self.pdf.set_font('Arial', 'B', 12)
-        self.pdf.set_text_color(0, 0, 0)
-        self.pdf.cell(95, 10, 'INFORMACIÓN DEL CLIENTE', ln=False)
-        self.pdf.cell(95, 10, 'DETALLES DEL PROYECTO', ln=True)
-
-        self.pdf.set_font('Arial', '', 10)
-        self.pdf.cell(95, 8, f'Cliente: {cliente}', ln=False)
-        self.pdf.cell(95, 8, f'Fecha: {date.today().strftime("%d/%m/%Y")}', ln=True)
-
-        self.pdf.cell(95, 8, f'Área: {datos_proyecto.get("area", 0):.2f} m²', ln=False)
-        self.pdf.cell(95, 8, f'Sistema: {datos_proyecto.get("sistema", "N/A")}', ln=True)
-
-        self.pdf.ln(10)
-
-        # Tabla de presupuesto
-        self.pdf.set_font('Arial', 'B', 10)
-        self.pdf.set_fill_color(240, 240, 240)
-
-        col_widths = [50, 70, 25, 45]
-        headers = ['Material', 'Descripción', 'Cant.', 'Subtotal']
-
-        for i, header in enumerate(headers):
-            self.pdf.cell(col_widths[i], 10, header, border=1, fill=True, align='C')
-        self.pdf.ln()
-
-        self.pdf.set_font('Arial', '', 9)
-
-        for _, row in presupuesto_df.iterrows():
-            self.pdf.cell(col_widths[0], 8, str(row['Material'])[:30], border=1)
-            self.pdf.cell(col_widths[1], 8, str(row['Detalle'])[:45], border=1)
-            self.pdf.cell(col_widths[2], 8, f"{row['Cantidad']} {row['Unidad']}", border=1, align='C')
-            self.pdf.cell(col_widths[3], 8, f"RD$ {row['Subtotal']:,.2f}", border=1, align='R')
-            self.pdf.ln()
-
-        # Total
-        self.pdf.ln(5)
-        self.pdf.set_font('Arial', 'B', 12)
-        self.pdf.set_fill_color(200, 220, 255)
-        self.pdf.cell(145, 10, '', border=0)
-        self.pdf.cell(45, 10, 'TOTAL:', border=1, fill=True, align='R')
-        self.pdf.cell(20, 10, f"RD$ {total:,.2f}", border=1, fill=True, align='R', ln=True)
-
-        # Notas
-        self.pdf.ln(10)
-        self.pdf.set_font('Arial', 'I', 8)
-        self.pdf.set_text_color(100, 100, 100)
-        self.pdf.multi_cell(190, 5,
-            'Nota: Esta cotización es estimada y puede variar según especificaciones finales. '
-            'Precios válidos por 15 días. No incluye mano de obra ni transporte.')
-
-        return self.pdf.output(dest='S').encode('latin-1')
+# PDFGenerator y _pdf_safe viven ahora en utils/pdf_propuesta.py (sin Streamlit).
+# Se reexportan aquí para no romper los imports existentes.
+from utils.pdf_propuesta import PDFGenerator, _pdf_safe  # noqa: F401,E402
 
 
-def create_download_link(pdf_content: bytes, filename: str, button_text: str = "📥 Descargar PDF") -> str:
+def create_download_link(pdf_content: bytes, filename: str,
+                         button_text: str = "📥 Descargar PDF") -> str:
+    """
+    Enlace de descarga embebido.
+
+    El estilo pasó a `.streamlit/estilos.css` (clase `iso-btn`) y el nombre de
+    archivo se escapa: antes se interpolaba directo en el atributo `download`,
+    y en la exportación a Excel se metía el nombre del cliente sin sanear.
+    """
     b64 = base64.b64encode(pdf_content).decode()
-    return f'''
-    <a href="data:application/pdf;base64,{b64}" download="{filename}">
-        <button style="width:100%; border-radius:10px; background-color:#28a745;
-                       color:white; padding:15px; border:none; cursor:pointer;
-                       font-size:16px; font-weight:bold;">{button_text}</button>
-    </a>
-    '''
+    nombre = html.escape(filename, quote=True)
+    return (
+        f'<a href="data:application/pdf;base64,{b64}" download="{nombre}">'
+        f'<button class="iso-btn iso-btn--verde">{html.escape(button_text)}</button></a>'
+    )
 
 
-def initialize_gemini(api_key: str) -> Optional[any]:
+# Era `Optional[any]` con la función incorporada `any` en minúscula, no el
+# tipo `Any`. Como anotación no fallaba, pero al modernizar la sintaxis a
+# `any | None` se convirtió en TypeError al importar el módulo.
+def initialize_gemini(api_key: str) -> Any | None:
     if not api_key:
         return None
     try:
@@ -228,32 +162,52 @@ def init_text_design_state():
 
 def render_text_design_assistant(context_key: str):
     """
-    Renderiza el asistente de texto libre.
+    Asistente Texto -> Diseño: convierte una descripción libre en un
+    presupuesto real y un esquema de planta, y captura el lead.
 
-    El asistente solo prellena parámetros; no modifica las fórmulas de cálculo.
+    REESCRITO (2026-07-26): antes solo extraía dimensiones agregadas (área,
+    perímetro) y generaba un render de fachada -- útil como imagen bonita,
+    pero no era lo que un lead pide cuando describe "3 dormitorios, 2 con
+    baño": quiere ver cómo se distribuye eso y cuánto cuesta, no una foto
+    de la fachada.
+
+    Ahora:
+      1. Gemini extrae el PROGRAMA DE AMBIENTES (dormitorios, baños, cocina,
+         marquesina...), no solo área/perímetro -- ver utils/ai_text_design.py.
+      2. Ese programa alimenta ProyectoState -> Geometria con conteos reales
+         (banos, puertas, ventanas), reemplazando la estimación genérica por
+         área que usa el resto de la app cuando no hay mejor dato.
+      3. Se corre el motor QTO real (el mismo que usa el resto de la app,
+         no un cálculo aparte) y se muestra un presupuesto de verdad.
+      4. Se dibuja un ESQUEMA de planta (utils/floor_plan.py) -- un diagrama
+         de bloques proporcional, etiquetado como lo que es, no una imagen
+         generada que finge ser un plano arquitectónico.
+      5. El render de fachada (Fal.ai) y el video (Luma) siguen disponibles,
+         pero como una impresión artística OPCIONAL y claramente marcada
+         como tal -- no son la fuente de ningún dato del presupuesto.
+      6. Se ofrece capturar el lead (nombre + contacto) justo después de
+         ver su presupuesto -- el momento de mayor interés.
     """
     init_text_design_state()
     api_key_default = get_gemini_api_key_from_config()
-    fal_key_default = get_fal_key_from_config()
-    luma_key_default = get_luma_key_from_config()
 
-    with st.expander("✨ ¿No tienes planos? Diseña el concepto con IA", expanded=False):
-        st.caption("Describe la vivienda y la IA estimará parámetros editables para el presupuesto, además de generar un render 3D y video si provees las claves de Fal y Luma.")
+    with st.expander("✨ ¿No tienes planos? Describe tu idea y te cotizamos", expanded=False):
+        st.caption(
+            "Describe la vivienda que imaginas -- cuántos dormitorios, baños, si "
+            "quieres marquesina, terraza, etc. Generamos un presupuesto real y un "
+            "esquema de cómo se distribuiría."
+        )
         descripcion = st.text_area(
             "Describe tu idea de vivienda",
-            placeholder="Ej: Casa moderna de 2 niveles en Samaná, 3 habitaciones, terraza, ventanales amplios...",
+            placeholder="Ej: Casa de 2 niveles, 3 dormitorios (2 con baño), cocina, "
+                       "sala, comedor, terraza con lavadero, marquesina para 2 carros...",
             key=f"text_design_desc_{context_key}",
         )
-        
-        col_keys1, col_keys2, col_keys3 = st.columns(3)
-        with col_keys1:
-            api_key = st.text_input("Gemini API Key (Requerido)", value=api_key_default, type="password", key=f"text_design_api_key_{context_key}")
-        with col_keys2:
-            fal_key = st.text_input("Fal.ai Key (Para Imagen)", value=fal_key_default, type="password", key=f"text_design_fal_key_{context_key}")
-        with col_keys3:
-            luma_key = st.text_input("Luma AI Key (Para Video)", value=luma_key_default, type="password", key=f"text_design_luma_key_{context_key}")
+        api_key = st.text_input("Gemini API Key", value=api_key_default, type="password",
+                                key=f"text_design_api_key_{context_key}")
 
-        if st.button("Generar Concepto y Medios Visuales", key=f"text_design_btn_{context_key}", use_container_width=True):
+        if st.button("🏠 Generar Presupuesto y Esquema", key=f"text_design_btn_{context_key}",
+                     use_container_width=True, type="primary"):
             if not descripcion.strip():
                 st.warning("Escribe una descripción corta de la vivienda.")
                 return
@@ -261,11 +215,10 @@ def render_text_design_assistant(context_key: str):
                 st.warning("Configura tu Gemini API Key en Streamlit Secrets o pégala aquí.")
                 return
 
-            # 1. Extraer dimensiones con Gemini
             try:
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel("gemini-1.5-flash")
-                with st.spinner("🧠 Interpretando tu idea y calculando dimensiones..."):
+                with st.spinner("🧠 Interpretando tu idea..."):
                     params, raw = analyze_text_design_with_gemini(model, descripcion)
                 st.session_state["text_design_raw"] = raw
             except Exception as e:
@@ -276,55 +229,122 @@ def render_text_design_assistant(context_key: str):
                 st.warning("La IA no devolvió un JSON confiable. Ajusta la descripción e intenta otra vez.")
                 return
 
-            # Actualizar estado para la app
+            # Antes: escritura directa de claves plan_* sueltas. Ahora pasa
+            # por ProyectoState, la única fuente de verdad (Fase 2) -- así
+            # el programa de ambientes (baños, puertas, ventanas reales)
+            # llega hasta Geometria, no solo el área.
+            estado = ProyectoState.cargar()
+            estado.aplicar_metricas(params, origen="Texto → Diseño (IA)")
+            estado.guardar()
+
             st.session_state["text_design_params"] = params
-            st.session_state["calc_area_m2"] = float(params["area_m2"])
-            st.session_state["plan_area_m2"] = float(params["area_m2"])
-            st.session_state["plan_niveles"] = int(params["niveles"])
-            st.session_state["plan_perimetro_m"] = float(params["perimetro_m"])
-            st.session_state["plan_altura_muro_m"] = float(params["altura_muro_m"])
-            st.session_state["plan_espesor_muro_m"] = float(params["espesor_muro_m"])
-            st.session_state["calidad_terminados"] = params.get("calidad_terminados", "media")
-            st.session_state["plan_params"] = {
-                "area_m2": params["area_m2"],
-                "niveles": params["niveles"],
-                "perimetro_m": params["perimetro_m"],
-                "altura_muro_m": params["altura_muro_m"],
-                "espesor_muro_m": params["espesor_muro_m"],
-                "calidad_terminados": params.get("calidad_terminados", "media"),
-                "observaciones": params.get("observaciones", ""),
-            }
-            
-            # 2. Generar Imagen con Fal.ai
-            if fal_key:
-                with st.spinner("🖼️ Generando render de fachada fotorrealista..."):
-                    image_url = generate_facade_image_fal(descripcion, fal_key)
+            st.session_state["descripcion_lead"] = descripcion
+            st.success("¡Listo! Revisa tu presupuesto y el esquema a continuación.")
+
+    # -- resultados: fuera del expander para que no se colapsen -----------
+    estado = ProyectoState.cargar()
+    params = st.session_state.get("text_design_params")
+    if not params:
+        return
+
+    st.subheader("📋 Tu proyecto")
+    if estado.avisos:
+        for aviso in estado.avisos:
+            st.caption(f"⚠️ {aviso}")
+
+    try:
+        geo = estado.geometria()
+        precios = st.session_state.get("precios_sincronizados") or DEFAULT_PRICEBOOK
+        motor = MotorQTO(geo, precios, calidad=estado.calidad)
+    except (KeyError, ValueError) as e:
+        st.error(f"No se pudo calcular el presupuesto: {e}")
+        return
+
+    col_r1, col_r2, col_r3 = st.columns(3)
+    col_r1.metric("Área estimada", f"{geo.area_m2:,.0f} m²")
+    col_r2.metric("Presupuesto estimado", f"RD$ {motor.total():,.0f}")
+    col_r3.metric("Costo por m²", f"RD$ {motor.costo_m2():,.0f}")
+    st.caption(
+        "Calculado con el mismo motor de cantidades que el resto de la app "
+        "(utils/qto.py) -- no es una cifra genérica ni un promedio de mercado."
+    )
+
+    if params.get("habitaciones"):
+        st.markdown("#### 🗺️ Esquema de distribución")
+        svg = generar_esquema_svg(params["habitaciones"], area_total_m2=geo.area_m2)
+        st.markdown(svg, unsafe_allow_html=True)
+
+    # -- fachada/video: opcional, claramente aparte del presupuesto -------
+    with st.expander("🎨 Ver una impresión artística de la fachada (opcional)", expanded=False):
+        st.caption(
+            "⚠️ Esta imagen es generada por IA como referencia visual -- NO "
+            "representa el diseño final ni afecta el presupuesto de arriba, "
+            "que se calcula con el motor de cantidades real."
+        )
+        fal_key_default = get_fal_key_from_config()
+        luma_key_default = get_luma_key_from_config()
+        col_keys1, col_keys2 = st.columns(2)
+        with col_keys1:
+            fal_key = st.text_input("Fal.ai Key", value=fal_key_default, type="password",
+                                    key=f"text_design_fal_key_{context_key}")
+        with col_keys2:
+            luma_key = st.text_input("Luma AI Key", value=luma_key_default, type="password",
+                                     key=f"text_design_luma_key_{context_key}")
+        if st.button("Generar imagen y video", key=f"text_design_media_btn_{context_key}"):
+            descripcion_previa = st.session_state.get("descripcion_lead", "")
+            if fal_key and descripcion_previa:
+                with st.spinner("🖼️ Generando render de fachada..."):
+                    image_url = generate_facade_image_fal(descripcion_previa, fal_key)
                     if image_url:
                         st.session_state["url_imagen"] = image_url
-                        
-                        # 3. Generar Video con Luma si hay imagen y llave de Luma
                         if luma_key:
-                            with st.spinner("🎥 Generando recorrido virtual en video (puede tomar un par de minutos)..."):
-                                video_url = generate_video_luma(image_url, descripcion, luma_key)
+                            with st.spinner("🎥 Generando video (puede tomar un par de minutos)..."):
+                                video_url = generate_video_luma(image_url, descripcion_previa, luma_key)
                                 if video_url:
                                     st.session_state["url_video"] = video_url
-                                else:
-                                    st.warning("No se pudo generar el video cinematográfico.")
                     else:
                         st.warning("No se pudo generar el render de fachada.")
+            else:
+                st.warning("Falta la Fal.ai Key o la descripción original.")
 
-            st.success("¡Concepto generado con éxito! Revisa los resultados a continuación.")
+        if st.session_state.get("url_imagen"):
+            st.image(st.session_state["url_imagen"], caption="Impresión artística (no final)",
+                     use_container_width=True)
+        if st.session_state.get("url_video"):
+            st.video(st.session_state["url_video"])
 
-    # Mostrar medios generados fuera del expander
-    if st.session_state.get("url_imagen") or st.session_state.get("url_video"):
-        st.subheader("✨ Visualización del Concepto IA")
-        col_media1, col_media2 = st.columns(2)
-        with col_media1:
-            if st.session_state.get("url_imagen"):
-                st.image(st.session_state["url_imagen"], caption="Render de Fachada (Fal.ai)", use_column_width=True)
-        with col_media2:
-            if st.session_state.get("url_video"):
-                st.video(st.session_state["url_video"])
+    # -- captura de lead: el momento de mayor interés ----------------------
+    st.divider()
+    st.markdown("#### 📞 ¿Te interesa este presupuesto? Déjanos tus datos")
+    with st.form(f"lead_text_design_{context_key}", clear_on_submit=True):
+        col_l1, col_l2 = st.columns(2)
+        with col_l1:
+            nombre = st.text_input("Nombre completo *")
+            telefono = st.text_input("Teléfono")
+        with col_l2:
+            email = st.text_input("Email *")
+            ubicacion = st.selectbox(
+                "Ubicación del proyecto",
+                ["Santo Domingo", "Santiago", "Punta Cana", "La Romana",
+                 "Puerto Plata", "San Pedro", "La Vega", "Otro"],
+            )
+        if st.form_submit_button("Solicitar cotización formal", use_container_width=True, type="primary"):
+            if nombre and email:
+                ProjectManager().save_lead({
+                    "nombre": nombre,
+                    "email": email,
+                    "telefono": telefono,
+                    "ubicacion": ubicacion,
+                    "tipo_proyecto": "Vivienda Unifamiliar",
+                    "area_estimada": geo.area_m2,
+                    "mensaje": (
+                        f"[Generado con asistente IA] {st.session_state.get('descripcion_lead', '')} "
+                        f"-- Presupuesto estimado: RD$ {motor.total():,.0f}"
+                    ),
+                })
+                st.success("✅ ¡Gracias! Un asesor se pondrá en contacto pronto con tu cotización formal.")
+            else:
+                st.error("❌ Completa al menos nombre y email.")
 
 
 def estimate_build_time_days(area_m2: float, productividad_m2_dia: float, min_days: float = 1.0) -> float:
@@ -364,35 +384,32 @@ def calc_h_beams_kg(area_m2: float, perimetro_m: float, beam_spacing_m: float, k
 
 
 def sincronizar_parametros_globales(datos: dict, origen: str):
-    """Sincroniza métricas extraídas (canvas o Gemini) al estado global de la sesión."""
+    """
+    Inyecta las dimensiones detectadas (canvas, Gemini o Text-to-Design) en el
+    estado del proyecto.
+
+    Antes escribía cinco claves sueltas de `st.session_state` que NADIE leía
+    (`calc_perimetro_m`, `calc_niveles`, `calc_altura_muro_m`,
+    `calc_espesor_muro_m`): cinco escrituras, cero lecturas. Ahora delega en
+    `ProyectoState`, que valida, sanea y alimenta al motor de cantidades.
+    """
     if not datos:
         return
-    st.success(f"🔄 Sincronizando métricas desde: {origen}")
+
+    estado = ProyectoState.cargar().aplicar_metricas(datos, origen=origen)
+    estado.guardar()
+
+    st.success(f"🔄 Parámetros actualizados desde: **{origen}**")
+
+    resumen = []
     if datos.get("area_m2"):
-        st.session_state["calc_area_m2"] = float(datos["area_m2"])
+        resumen.append(f"área {estado.area_m2:,.1f} m²")
     if datos.get("perimetro_m"):
-        st.session_state["calc_perimetro_m"] = float(datos["perimetro_m"])
+        resumen.append(f"perímetro {estado.perimetro_m:,.1f} m")
+    if datos.get("niveles"):
+        resumen.append(f"{estado.niveles} nivel(es)")
+    if resumen:
+        st.caption("Se usará en el presupuesto: " + ", ".join(resumen))
 
-
-def sincronizar_parametros_globales(datos: dict, origen: str):
-    """
-    Inyecta de forma segura las dimensiones detectadas o calculadas
-    en el session_state para que el calculador de presupuestos las use.
-    """
-    if not datos:
-        return
-
-    st.success(f"🔄 Parámetros actualizados automáticamente desde: **{origen}**")
-    
-    # Mapeo seguro con fallback para evitar sobreescritura con None
-    if datos.get("area_m2") is not None:
-        st.session_state["calc_area_m2"] = float(datos["area_m2"])
-    if datos.get("perimetro_m") is not None:
-        st.session_state["calc_perimetro_m"] = float(datos["perimetro_m"])
-    if datos.get("niveles") is not None:
-        st.session_state["calc_niveles"] = int(datos["niveles"])
-    if datos.get("altura_muro_m") is not None:
-        st.session_state["calc_altura_muro_m"] = float(datos["altura_muro_m"])
-    if datos.get("espesor_muro_m") is not None:
-        st.session_state["calc_espesor_muro_m"] = float(datos["espesor_muro_m"])
-
+    for aviso in estado.avisos:
+        st.warning(f"⚠️ {aviso}")

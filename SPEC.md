@@ -1,6 +1,10 @@
 # IsoSmart Titanium - Especificación de Funcionalidades
 
-## Versión: 4.5.1
+## Versión: 4.6.0 — actualizado 2026-07-26
+
+> Este documento describía una aplicación que no existía: proponía una estructura
+> de archivos (`pages/2_Calculadora.py`, `pages/3_Visor_BIM.py`...) que nunca se
+> implementó. La sección 6 refleja ahora el árbol real del repositorio.
 
 ---
 
@@ -36,7 +40,7 @@ Proporcionar análisis financieros profundos para la toma de decisiones en proye
 - Costos de seguros y depreciación
 
 #### 2.4 Análisis de Financiamiento
-- Opciones de pago分期 (cuotas)
+- Opciones de pago en cuotas
 - Estimación de costos de financiamiento bancario
 - Cash flow projection para construcción en fases
 
@@ -64,7 +68,7 @@ Proporcionar análisis financieros profundos para la toma de decisiones en proye
 
 ---
 
-## 3. Módulo de Ahorro Energético (Futuro)
+## 3. Módulo de Ahorro Energético — ✅ implementado (`utils/energia.py`)
 
 ### Funcionalidades
 - Cálculo de carga térmica del edificio
@@ -83,7 +87,7 @@ Proporcionar análisis financieros profundos para la toma de decisiones en proye
 
 ---
 
-## 5. Visor BIM 3D Mejorado (Futuro)
+## 5. Visor BIM 3D Mejorado (pendiente)
 
 ### Mejoras
 - Exportación a GLB/OBJ para Blender/AutoCAD
@@ -93,26 +97,78 @@ Proporcionar análisis financieros profundos para la toma de decisiones en proye
 
 ---
 
-## 6. Estructura de Archivos Propuesta
+## 6. Estructura de Archivos (real)
 
 ```
 isosmart-titanium/
-├── app.py                    # Aplicación principal
-├── pages/
-│   ├── 1_Dashboard_Financiero.py
-│   ├── 2_Calculadora.py
-│   ├── 3_Visor_BIM.py
-│   ├── 4_Contacto.py
-├── utils/
-│   ├── calculations.py      # Cálculos estructurales
-│   ├── financiera.py         # Análisis financiero (NUEVO)
-│   ├── energia.py            # Cálculos energéticos (NUEVO)
-│   ├── __init__.py
-├── requirements.txt
-└── README.md
+├── app.py                       # Router ÚNICO de navegación
+├── ui_core.py                   # Helpers compartidos, ProjectManager
+├── ui_inicio.py  ui_team.py  ui_calculadora.py
+├── ui_presupuesto.py  ui_visor_bim.py  ui_vision.py
+│
+├── paginas/                     # Páginas enrutadas desde app.py
+│   ├── dashboard_financiero.py
+│   └── analisis_energetico.py
+├── pages/                       # Streamlit multipágina (solo el CRM protegido)
+│   └── 3_Admin_Leads.py
+│
+├── utils/                       # Dominio puro — SIN Streamlit
+│   ├── dominio.py               # Enums: Sistema, Calidad, ZonaRiesgo
+│   ├── geometria.py             # Geometría del proyecto (perímetro, niveles...)
+│   ├── parametros.py            # Carga de parametros_tecnicos.yaml
+│   ├── qto.py                   # ★ Motor de cantidades (fuente de verdad)
+│   ├── calculador.py            # Motor clásico (legado, en retirada)
+│   ├── pricebook.py  catalog.py
+│   ├── financiera.py  energia.py  tarifa.py
+│   ├── vision.py  plan_geometry.py  ai_text_design.py  ai_media.py
+│   ├── pdf_propuesta.py         # PDF sin dependencia de Streamlit
+│   ├── repositorio.py           # SQLite / Supabase
+│   ├── estado.py                # ProyectoState (session_state unificado)
+│   ├── estilos.py               # Hoja de estilos compartida
+│   └── storage.py  pdf_utils.py
+│
+├── data/
+│   ├── pricebook.json           # Precios (39 materiales)
+│   └── parametros_tecnicos.yaml # ★ Espesores, rendimientos, mallas
+│
+├── tests/                       # 87 tests (pytest)
+├── docs/BASE_TECNICA_EPS_ICF.md # ★ Fuente técnica del motor QTO
+├── AUDITORIA.md                 # Informe de auditoría 2026-07-26
+├── .streamlit/estilos.css
+├── .github/workflows/ci.yml     # ruff + pytest
+└── pyproject.toml
 ```
 
----
+### Principio arquitectónico
+
+`utils/` **no importa Streamlit**. Esa regla es lo que permite ejecutar y validar
+el motor de presupuesto sin levantar la interfaz, y es la razón por la que el
+bug del PDF pasó años sin detectarse: `PDFGenerator` vivía dentro de `ui_core.py`.
+
+Excepciones toleradas y acotadas: `vision.py`, `ai_text_design.py` y `ai_media.py`
+usan `st.cache_data`; `estado.py` y `estilos.py` importan Streamlit de forma
+diferida, dentro de las funciones.
+
+## 6.b Motor de cantidades (QTO)
+
+Implementa `docs/BASE_TECNICA_EPS_ICF.md`. Reemplaza progresivamente a
+`utils/calculador.py`.
+
+```python
+from utils.geometria import Geometria
+from utils.qto import MotorQTO
+
+geo   = Geometria(area_m2=120, perimetro_m=44, altura_muro_m=2.8, niveles=1)
+motor = MotorQTO(geo, precios, sistema="Paneles Isotex", calidad="media")
+
+motor.presupuesto()              # DataFrame de partidas con trazabilidad
+motor.resumen_por_categoria()
+motor.comparar_con_tradicional() # gris vs gris (27.5%), NO gris vs terminada
+motor.partidas_por_verificar()   # precios que aún son referencia
+```
+
+**Objetivo de precisión:** ±5% frente al costo ejecutado. Requiere sustituir los
+precios de referencia por cotizaciones de proveedor.
 
 ## 7. API de Datos
 
@@ -145,7 +201,7 @@ def estimar_consumo_energia(area_m2, sistema):
 - **Gráficos**: Plotly
 - **Datos**: Pandas, NumPy
 - **PDF**: ReportLab, FPDF
-- **Almacenamiento**: JSON (local) / SQLite (futuro)
+- **Almacenamiento**: SQLite (`utils/repositorio.py`) / Supabase opcional
 
 ---
 

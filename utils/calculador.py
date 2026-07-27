@@ -1,7 +1,23 @@
-# -*- coding: utf-8 -*-
 """
 utils/calculador.py
 -------------------
+⚠️ MOTOR LEGADO — RETIRADO DE LA RUTA DE CÁLCULO EN VIVO (2026-07-26)
+
+Este era el motor de presupuesto original. Producía 9.6% de obra terminada,
+un ahorro fijo del 83.6% (gris EPS vs obra TERMINADA tradicional -- peras con
+manzanas) y `area_muros = m2 * 2.2` en vez de la geometría real del proyecto.
+
+`utils/qto.py::MotorQTO` es la fuente de verdad desde la Fase 1 de la
+auditoría. Verificado el 2026-07-26 que NINGUNA pantalla llama ya a
+`BudgetCalculator` (ver `tests/test_migracion_legado.py`). Este archivo se
+conserva únicamente para que `tests/comparar_calculadoras.py` siga fijando
+sus números históricos como test de regresión del motor viejo -- no para
+alimentar ninguna pantalla.
+
+No conectar `BudgetCalculator` a ninguna pantalla nueva. Si necesitas una
+partida que MotorQTO no tiene, agrégala allí.
+----------------------------------------------------------------------
+
 Motor de Presupuesto ÚNICO y desacoplado para IsoSmart Titanium.
 
 Esta es la FUENTE DE VERDAD del cálculo de presupuestos (unificado el 2026-07-10).
@@ -23,6 +39,7 @@ Uso:
 
 import pandas as pd
 
+from .dominio import Calidad, Sistema, ZonaRiesgo, normalizar_calidad, normalizar_sistema, normalizar_zona_riesgo
 
 # ============================================================================
 # MOTOR DE PRESUPUESTO ATÓMICO (ÚNICA FUENTE DE VERDAD)
@@ -39,17 +56,34 @@ class BudgetCalculator:
         "desperdicio_hormigon": 0.08,   # 8% de merma en hormigón (bugfix corregido)
     }
 
+    # Antes: `if "Muy Alto" in zona_riesgo` -> el substring "Alto" también hacía
+    # match dentro de "Muy Alto", y cualquier variante de escritura caía al
+    # factor 1.0 sin avisar. Ahora la zona se normaliza a Enum y se busca en
+    # una tabla explícita.
+    FACTORES_ZONA = {
+        ZonaRiesgo.MODERADO: (1.00, 1.00),
+        ZonaRiesgo.ALTO:     (1.20, 1.10),   # falla septentrional / suroeste
+        ZonaRiesgo.MUY_ALTO: (1.35, 1.00),   # ruta de huracanes
+    }
+
+    # Claves del pricebook que este motor consume realmente. Las 18 restantes
+    # (inodoro, ventanas, cocina, mallas...) se editan en la UI pero todavía no
+    # entran en ninguna partida; exponer esta lista permite que la interfaz lo
+    # diga en vez de fingir que el cambio surtió efecto.
+    CLAVES_PRECIO_USADAS = (
+        "Panel_Muro", "Panel_Techo", "H_3000_PSI", "H_3500_PSI",
+        "Viga_H_kg", "Acero_Varilla",
+        "Ceramica_m2", "Pintura_galon", "Puerta_interior",
+    )
+
     @classmethod
-    def _factor_riesgo(cls, zona_riesgo: str):
+    def claves_precio_usadas(cls) -> frozenset:
+        return frozenset(cls.CLAVES_PRECIO_USADAS)
+
+    @classmethod
+    def _factor_riesgo(cls, zona_riesgo):
         """Devuelve (factor_acero, factor_hormigon) según la zona de RD."""
-        factor_acero = 1.0
-        factor_hormigon = 1.0
-        if "Muy Alto" in zona_riesgo:
-            factor_acero = 1.35    # +35% acero (ruta de huracanes / punta cana)
-        elif "Alto" in zona_riesgo:
-            factor_acero = 1.20    # +20% acero (falla septentrional/suroeste)
-            factor_hormigon = 1.10  # +10% cimientos
-        return factor_acero, factor_hormigon
+        return cls.FACTORES_ZONA[normalizar_zona_riesgo(zona_riesgo)]
 
     @classmethod
     def calcular_obra_grisa(cls, m2, sistema, precios, incluir_vigas=True,
@@ -63,7 +97,7 @@ class BudgetCalculator:
 
         data = []
 
-        if sistema == "Paneles Isotex":
+        if normalizar_sistema(sistema) is Sistema.ISOTEX:
             # Muros
             total_muros = area_muros * (1 + d_panel)
             data.append({
@@ -161,15 +195,21 @@ class BudgetCalculator:
     @classmethod
     def calcular_obra_terminada(cls, m2, area_muros, precios, calidad="media"):
         """Calcula la obra terminada (pisos, pintura, puertas)."""
-        factores = {"economica": 0.8, "media": 1.0, "alta": 1.5, "lujo": 2.5}
-        factor = factores.get(calidad, 1.0)
+        factores = {
+            Calidad.ECONOMICA: 0.8,
+            Calidad.MEDIA:     1.0,
+            Calidad.ALTA:      1.5,
+            Calidad.LUJO:      2.5,
+        }
+        calidad = normalizar_calidad(calidad)   # "económica" ya NO cae a "media"
+        factor = factores[calidad]
 
         data = []
         area_piso = m2 * 0.9
         data.append({
             "Categoria": "Pisos",
             "Material": "Cerámica/Porcelanato",
-            "Detalle": f"Piso calidad {calidad}",
+            "Detalle": f"Piso calidad {calidad.value}",
             "Cantidad": round(area_piso, 2),
             "Unidad": "m²",
             "P_Unitario": precios.get("Ceramica_m2", 450.0) * factor,
@@ -219,12 +259,12 @@ class BudgetCalculator:
         total_isotex = isotex_gris['Subtotal'].sum() + isotex_term['Subtotal'].sum()
 
         matriz_tradicional = {
-            "economica": {"gris": 22000.00, "terminado": 16000.00},
-            "media":     {"gris": 35000.00, "terminado": 25000.00},
-            "alta":      {"gris": 52000.00, "terminado": 38000.00},
-            "lujo":      {"gris": 75000.00, "terminado": 60000.00},
+            Calidad.ECONOMICA: {"gris": 22000.00, "terminado": 16000.00},
+            Calidad.MEDIA:     {"gris": 35000.00, "terminado": 25000.00},
+            Calidad.ALTA:      {"gris": 52000.00, "terminado": 38000.00},
+            Calidad.LUJO:      {"gris": 75000.00, "terminado": 60000.00},
         }
-        costos_trad = matriz_tradicional.get(calidad, matriz_tradicional["media"])
+        costos_trad = matriz_tradicional[normalizar_calidad(calidad)]
         tradicional_gris = m2 * costos_trad["gris"]
         tradicional_term = m2 * costos_trad["terminado"]
         total_tradicional = tradicional_gris + tradicional_term
@@ -232,7 +272,7 @@ class BudgetCalculator:
         tiempo_isotex = m2 * (1.1 if usar_vigas else 1.5)
         tiempo_tradicional = m2 * 2.5
         peso_tradicional = m2 * 850
-        peso_isotex = m2 * (220 if sistema == "Paneles Isotex" else 380)
+        peso_isotex = m2 * (220 if normalizar_sistema(sistema) is Sistema.ISOTEX else 380)
 
         return {
             'isotex': {

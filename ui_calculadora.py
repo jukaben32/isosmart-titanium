@@ -1,56 +1,50 @@
-# -*- coding: utf-8 -*-
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
-import streamlit as st
+import base64
+import hashlib
+import html
+import os
+from datetime import datetime
+from io import BytesIO
+
+import google.generativeai as genai
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import google.generativeai as genai
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime, date
-from fpdf import FPDF
-import base64
-import json
-import os
-from io import BytesIO
-from typing import Dict, List, Optional, Tuple
-import hashlib
-import time
+import streamlit as st
+from PIL import Image
 
-from utils.pricebook import Pricebook
-from utils.storage import list_dict_values, read_json, write_json_atomic
+from ui_core import (
+    PDFGenerator,
+    ProjectManager,
+    calc_h_beams_kg,
+    create_download_link,
+    estimate_build_time_days,
+    estimate_foundation_volume_m3,
+    get_gemini_api_key_from_config,
+    initialize_gemini,
+    render_text_design_assistant,
+    sincronizar_parametros_globales,
+    st_canvas,
+)
+from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS
+from utils.estado import ProyectoState
+
+# Helpers compartidos desde ui_core
+from utils.estilos import boton_enlace  # noqa: E402
+from utils.financiera import AnalisisFinanciero
 from utils.gemini_plan import analyze_plan_image_with_gemini
+from utils.pdf_utils import pdf_first_page_to_image
 from utils.plan_geometry import (
+    contar_lineas_calibracion,
+    contar_poligonos,
+    extract_line_segments,
+    extract_points,
     polygon_area_perimeter,
     polygon_from_canvas,
     scale_from_canvas_line,
-    extract_line_segments,
-    extract_points,
 )
-from utils.pdf_utils import pdf_first_page_to_image
-from utils.catalog import Catalog
-from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
-from utils.ai_media import generate_facade_image_fal, generate_video_luma
-from utils.financiera import AnalisisFinanciero, AnalisisFinancieroRD
-from utils.calculador import BudgetCalculator
-from utils.energia import AnalisisEnergetico
+from utils.pricebook import Pricebook
+from utils.qto import CATEGORIAS_OBRA_GRIS, MotorQTO
 
-# Helpers compartidos desde ui_core
-from ui_core import (
-    sincronizar_parametros_globales,
-    ProjectManager,
-    PDFGenerator,
-    create_download_link,
-    initialize_gemini,
-    get_gemini_api_key_from_config,
-    get_fal_key_from_config,
-    get_luma_key_from_config,
-    init_text_design_state,
-    render_text_design_assistant,
-    estimate_build_time_days,
-    estimate_foundation_volume_m3,
-    calc_h_beams_kg,
-)
-from ui_vision import render_integradora_vision_canvas
 
 def render_modulo_vision_y_canvas(modelo_gemini):
     """
@@ -133,16 +127,30 @@ def render_modulo_vision_y_canvas(modelo_gemini):
                 
                 # Calcular escala en metros/píxel (m/px) usando la primera línea dibujada
                 m_por_px = scale_from_canvas_line(objetos, longitud_real_m)
-                
+
                 if m_por_px:
+                    n_lineas = contar_lineas_calibracion(objetos)
+                    if n_lineas > 1:
+                        st.warning(
+                            f"⚠️ Se detectaron {n_lineas} líneas dibujadas; se usó la "
+                            f"PRIMERA para calibrar. Borra las líneas sobrantes si no "
+                            f"era la que querías usar."
+                        )
                     st.info(f"📐 Factor de escala calculado: **{m_por_px:.5f} m/px**")
-                    
+
                     # Extraer el primer polígono dibujado por el usuario
                     puntos_poligono = polygon_from_canvas(objetos)
-                    
+                    n_poligonos = contar_poligonos(objetos)
+                    if n_poligonos > 1:
+                        st.warning(
+                            f"⚠️ Se detectaron {n_poligonos} polígonos trazados; se usó "
+                            f"el PRIMERO. Si el área mostrada no es la que esperabas, "
+                            f"borra los polígonos sobrantes y traza solo el perímetro."
+                        )
+
                     if puntos_poligono:
                         area_px2, perimetro_px = polygon_area_perimeter(puntos_poligono)
-                        
+
                         # Conversión métrica real usando el factor de escala
                         area_m2_real = area_px2 * (m_por_px ** 2)
                         perimetro_m_real = perimetro_px * m_por_px
@@ -289,23 +297,57 @@ def pagina_calculadora():
             project_manager.save_project(project_id, project_data)
             st.success("✅ Proyecto guardado correctamente en la base de datos.")
 
-    # Calcular presupuestos
-    # Inyecta el pricebook (editable) al motor de cálculo.
-    obra_gris_df, obra_terminada_df = BudgetCalculator.calcular_presupuesto_completo(
-        m2=m2_in,
-        sistema=sistema_seleccionado,
-        precios=precios_actuales,
-        incluir_vigas=usar_vigas_h,
-        calidad_terminados=calidad_terminados,
-        zona_riesgo=zona_riesgo
-    )
+    # ------------------------------------------------------------------
+    # Motor de cálculo: MotorQTO (antes: BudgetCalculator, motor clásico)
+    #
+    # Esta es LA página que genera el PDF que recibe un cliente real. Seguía
+    # en el motor clásico después de que la Fase 1 de la auditoría migró el
+    # resto de la app al motor de cantidades — el usuario podía calibrar el
+    # canvas, trazar el polígono, dejar que Gemini leyera el plano... y esta
+    # página seguía calculando con `m2 * 2.2`, sin usar nada de eso.
+    #
+    # Además el PDF recibía solo `obra_gris_df` pero el total impreso incluía
+    # obra gris + terminada: las filas nunca sumaban el total mostrado en el
+    # documento que firma el cliente. `presupuesto_formato_legado()` corrige
+    # ambas cosas a la vez.
+    # ------------------------------------------------------------------
+    estado_proyecto = ProyectoState.cargar()
+    estado_proyecto.area_m2 = m2_in
+    estado_proyecto.sistema = sistema_seleccionado
+    estado_proyecto.calidad = calidad_terminados
+    estado_proyecto.zona_riesgo = zona_riesgo
+    estado_proyecto.guardar()
 
-    total_obra_gris = obra_gris_df['Subtotal'].sum()
-    total_obra_terminada = obra_terminada_df['Subtotal'].sum()
-    total_general = total_obra_gris + total_obra_terminada
+    geo = estado_proyecto.geometria()
+    motor = MotorQTO(geo, precios_actuales, sistema=sistema_seleccionado,
+                     calidad=calidad_terminados, zona_riesgo=zona_riesgo)
+
+    if usar_vigas_h:
+        st.sidebar.warning(
+            "⚠️ Los pórticos de vigas H aún no están modelados en el motor QTO. "
+            "Esta opción no afecta el presupuesto mostrado."
+        )
+
+    presupuesto_legado = motor.presupuesto_formato_legado()
+    obra_gris_df = presupuesto_legado[presupuesto_legado["Categoria"].isin(CATEGORIAS_OBRA_GRIS)].reset_index(drop=True)
+    obra_terminada_df = presupuesto_legado[~presupuesto_legado["Categoria"].isin(CATEGORIAS_OBRA_GRIS)].reset_index(drop=True)
+
+    total_obra_gris = motor.total_obra_gris()
+    total_obra_terminada = motor.total_obra_terminada()
+    total_general = motor.total()
+
+    por_verificar = motor.partidas_por_verificar()
+    if not por_verificar.empty:
+        monto_ref = por_verificar["subtotal"].sum()
+        st.info(
+            f"📎 RD$ {monto_ref:,.0f} ({monto_ref/total_general*100:.0f}% del total) usa "
+            f"precios de **referencia** (Covintec México, convertidos a DOP), no "
+            f"cotizaciones de proveedor local. Ver `utils/fuentes.py`."
+        )
 
     # Métricas
     st.markdown("### 💰 Resumen de Costos")
+
 
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
 
@@ -331,12 +373,16 @@ def pagina_calculadora():
         )
 
     with col_m4:
-        comparacion = BudgetCalculator.comparar_sistemas(m2_in, precios_actuales, sistema_seleccionado, usar_vigas_h, calidad_terminados)
-        ahorro_pct = comparacion['ahorro']['porcentaje']
+        comparacion = motor.comparar_con_tradicional()
+        ahorro_pct = comparacion['ahorro']['total_pct']
         st.metric(
             label="Ahorro vs Tradicional",
             value=f"{ahorro_pct:.1f}%",
-            delta=f"RD$ {comparacion['ahorro']['dinero']:,.0f}"
+            delta=f"RD$ {comparacion['ahorro']['total_rd']:,.0f}"
+        )
+        st.caption(
+            f"{comparacion['ahorro']['obra_gris_pct']:.1f}% sobre obra gris; "
+            f"los acabados son iguales en ambos sistemas."
         )
 
     st.markdown("### ⏱️ Tiempo estimado (productividad)")
@@ -382,19 +428,23 @@ def pagina_calculadora():
         st.dataframe(df_display, use_container_width=True, hide_index=True)
 
     with tab_comp:
-        st.markdown("##### Comparativa Isotex vs Tradicional")
-
-        comparacion = BudgetCalculator.comparar_sistemas(m2_in, precios_actuales, sistema_seleccionado, usar_vigas_h, calidad_terminados)
+        st.markdown("##### Comparativa EPS/ICF vs Tradicional (obra gris vs obra gris)")
+        st.caption(
+            f"El ahorro ({comparacion['ahorro']['obra_gris_pct']:.1f}%) se aplica solo a la "
+            f"obra gris; los acabados son idénticos en ambos sistemas. Antes esta pestaña "
+            f"comparaba obra gris EPS contra obra **terminada** tradicional — peras con "
+            f"manzanas — y mostraba peso y tiempo de construcción sin ninguna fuente."
+        )
 
         col_c1, col_c2 = st.columns(2)
 
         with col_c1:
             st.markdown(f"""
-            #### Isotex/ICF
-            - **Costo Total:** RD$ {comparacion['isotex']['costo_total']:,.0f}
-            - **Costo/m²:** RD$ {comparacion['isotex']['costo_m2']:,.0f}
-            - **Tiempo:** {comparacion['isotex']['tiempo_dias']:.0f} días
-            - **Peso:** {comparacion['isotex']['peso_kg']:,.0f} kg
+            #### EPS/ICF
+            - **Costo Total:** RD$ {comparacion['eps']['costo_total']:,.0f}
+            - **Costo/m²:** RD$ {comparacion['eps']['costo_m2']:,.0f}
+            - **Obra gris:** RD$ {comparacion['eps']['obra_gris']:,.0f}
+            - **Obra terminada:** RD$ {comparacion['eps']['obra_terminada']:,.0f}
             """)
 
         with col_c2:
@@ -402,8 +452,8 @@ def pagina_calculadora():
             #### Tradicional
             - **Costo Total:** RD$ {comparacion['tradicional']['costo_total']:,.0f}
             - **Costo/m²:** RD$ {comparacion['tradicional']['costo_m2']:,.0f}
-            - **Tiempo:** {comparacion['tradicional']['tiempo_dias']:.0f} días
-            - **Peso:** {comparacion['tradicional']['peso_kg']:,.0f} kg
+            - **Obra gris:** RD$ {comparacion['tradicional']['obra_gris']:,.0f}
+            - **Obra terminada:** RD$ {comparacion['tradicional']['obra_terminada']:,.0f}
             """)
 
     # Módulo de Financiamiento
@@ -449,7 +499,9 @@ def pagina_calculadora():
         if st.button("📄 Generar PDF Completo", use_container_width=True):
             pdf_gen = PDFGenerator()
             datos = {'area': m2_in, 'sistema': sistema_seleccionado, 'cliente': cliente}
-            pdf_bytes = pdf_gen.generar_propuesta(cliente, datos, obra_gris_df, total_general)
+            pdf_bytes = pdf_gen.generar_propuesta(
+                cliente, datos, presupuesto_legado, total_general
+            )  # antes: solo obra_gris_df -> las filas no sumaban el total impreso
             st.markdown(
                 create_download_link(pdf_bytes, f"Presupuesto_{cliente.replace(' ', '_')}.pdf"),
                 unsafe_allow_html=True
@@ -467,13 +519,7 @@ def pagina_calculadora():
             f"Generado por IsoSmart Titanium."
         )
         wa_url = f"https://api.whatsapp.com/send?text={quote(wa_text)}"
-        st.markdown(
-            f'<a href="{wa_url}" target="_blank">'
-            f'<button style="width:100%; border-radius:10px; background-color:#25D366; color:white; '
-            f'padding:15px; border:none; cursor:pointer; font-size:16px; font-weight:bold;">'
-            f'💬 Enviar por WhatsApp</button></a>',
-            unsafe_allow_html=True
-        )
+        boton_enlace(wa_url, "💬 Enviar por WhatsApp", variante="whatsapp")
 
     with col_exp3:
         if st.button("📊 Exportar Excel", use_container_width=True):
@@ -483,12 +529,11 @@ def pagina_calculadora():
                 obra_terminada_df.to_excel(writer, sheet_name='Obra Terminada', index=False)
             output.seek(0)
             b64 = base64.b64encode(output.getvalue()).decode()
+            nombre_archivo = f"Presupuesto_Completo_{cliente.replace(' ', '_')}.xlsx"
             st.markdown(
                 f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" '
-                f'download="Presupuesto_Completo_{cliente.replace(" ", "_")}.xlsx">'
-                f'<button style="width:100%; border-radius:10px; background-color:#27ae60; color:white; '
-                f'padding:15px; border:none; cursor:pointer; font-size:16px; font-weight:bold;">'
-                f'📊 Descargar Excel</button></a>',
+                f'download="{html.escape(nombre_archivo, quote=True)}">'
+                f'<button class="iso-btn iso-btn--excel">📊 Descargar Excel</button></a>',
                 unsafe_allow_html=True
             )
 
@@ -499,7 +544,9 @@ def pagina_calculadora():
             import requests
             pdf_gen = PDFGenerator()
             datos = {'area': m2_in, 'sistema': sistema_seleccionado, 'cliente': cliente}
-            pdf_bytes = pdf_gen.generar_propuesta(cliente, datos, obra_gris_df, total_general)
+            pdf_bytes = pdf_gen.generar_propuesta(
+                cliente, datos, presupuesto_legado, total_general
+            )  # antes: solo obra_gris_df -> las filas no sumaban el total impreso
             
             resend_api_key = os.environ.get("RESEND_API_KEY", "")
             if resend_api_key:
@@ -513,7 +560,11 @@ def pagina_calculadora():
                         "from": "onboarding@resend.dev",
                         "to": [email_dest],
                         "subject": f"Presupuesto de Construcción - {cliente}",
-                        "html": f"<p>Hola {cliente},</p><p>Adjunto encontrará su presupuesto estimado para la construcción con sistema {sistema_sel}.</p>",
+                        "html": (
+                            f"<p>Hola {html.escape(str(cliente))},</p>"
+                            f"<p>Adjunto encontrará su presupuesto estimado para la "
+                            f"construcción con sistema {html.escape(str(sistema_seleccionado))}.</p>"
+                        ),
                         "attachments": [
                             {
                                 "filename": f"Presupuesto_{cliente}.pdf",
@@ -610,10 +661,9 @@ def pagina_contacto():
 
         ### 🔗 Redes Sociales
 
-        - [Facebook](#)
-        - [Instagram](#)
-        - [YouTube](#)
-        - [LinkedIn](#)
+        - [Facebook](https://www.facebook.com/IsotexRD/)
+        - [Instagram](https://www.instagram.com/isotexrd/)
+        - [Twitter/X](https://twitter.com/IsotexD)
         """)
 
     st.divider()
@@ -623,86 +673,22 @@ def pagina_contacto():
     st.map([{"lat": 18.4861, "lon": -69.9312}])  # Santo Domingo
 
 
-def render_pestana_configuracion_precios():
-    """Pestaña administrativa para actualizar costos de materiales en tiempo real."""
-    st.subheader("⚙️ Panel de Control del Libro de Precios RD")
-    st.caption("Modifica los costos básicos del mercado dominicano. Los cambios afectarán los nuevos cálculos de presupuesto de forma inmediata.")
-
-    # Aviso de referencia: los precios actuales son provisionales hasta
-    # confirmacion oficial de Isotex Dominicana (pendiente de lista de precios).
-    st.info(
-        "ℹ️ **Precios de referencia.** Los valores actuales son provisionales, "
-        "estimados a partir de referencias del mercado (Covintex MX/BR convertidos a RD$). "
-        "Pendiente de confirmación oficial de **Isotex Dominicana** "
-        "(info@grupoisotex.net). Actualiza aquí los precios reales en cuanto los tengas.",
-        icon="ℹ️",
-    )
-
-    # Instanciación del Pricebook (Usa el tuyo propio de utils.pricebook)
-    ruta_preciobook = os.path.join("data", "pricebook.json")
-    
-    # Asegurar directorio data existente
-    os.makedirs("data", exist_ok=True)
-    
-    # Cargamos el estado actual
-    if "pricebook_obj" not in st.session_state:
-        # Si tu clase Pricebook requiere inicialización con dict, adaptamos:
-        st.session_state["pricebook_obj"] = Pricebook(ruta_preciobook)
-    
-    pb = st.session_state["pricebook_obj"]
-    
-    # Intentar leer los precios desde el archivo o usar fallback si está vacío
-    precios_actuales = pb.get_all_prices() if hasattr(pb, 'get_all_prices') else read_json(ruta_preciobook, default={})
-    
-    if not precios_actuales:
-        # Fallback de seguridad con tus datos por defecto si el JSON no existe
-        precios_actuales = {
-            "Panel_Muro": 925.00, "Panel_Techo": 1125.00, "H_3000_PSI": 7350.00,
-            "H_3500_PSI": 7950.00, "Viga_H_kg": 105.00, "Acero_Varilla": 85.00,
-            "Ceramica_m2": 450.00, "Pintura_galon": 1200.00, "Puerta_interior": 8500.00
-        }
-        write_json_atomic(ruta_preciobook, precios_actuales)
-
-    # UI dividida por categorías de insumos para que sea cómoda de leer
-    tab_cat1, tab_cat2 = st.tabs(["🏗️ Estructura y Obra Gris", "🎨 Terminaciones y Acabados"])
-    
-    nuevos_precios = precios_actuales.copy()
-    
-    with tab_cat1:
-        st.markdown("#### Materiales Base e Insumos Críticos")
-        col1, col2 = st.columns(2)
-        with col1:
-            nuevos_precios["Panel_Muro"] = st.number_input("Panel Isotex / Bloque Muro (RD$/m²)", min_value=1.0, value=float(precios_actuales.get("Panel_Muro", 925.0)))
-            nuevos_precios["Panel_Techo"] = st.number_input("Panel Isotex Losa / Techo (RD$/m²)", min_value=1.0, value=float(precios_actuales.get("Panel_Techo", 1125.0)))
-            nuevos_precios["Acero_Varilla"] = st.number_input("Acero de Varilla Corrugada (RD$/kg)", min_value=1.0, value=float(precios_actuales.get("Acero_Varilla", 85.0)))
-        with col2:
-            nuevos_precios["H_3000_PSI"] = st.number_input("Hormigón Premezclado 3000 PSI (RD$/m³)", min_value=1.0, value=float(precios_actuales.get("H_3000_PSI", 7350.0)))
-            nuevos_precios["H_3500_PSI"] = st.number_input("Hormigón Premezclado 3500 PSI (RD$/m³)", min_value=1.0, value=float(precios_actuales.get("H_3500_PSI", 7950.0)))
-            nuevos_precios["Viga_H_kg"] = st.number_input("Perfil de Acero Viga H (RD$/kg)", min_value=1.0, value=float(precios_actuales.get("Viga_H_kg", 105.0)))
-
-    with tab_cat2:
-        st.markdown("#### Elementos de Obra Terminada")
-        col3, col4 = st.columns(2)
-        with col3:
-            nuevos_precios["Ceramica_m2"] = st.number_input("Revestimiento Cerámica Base (RD$/m²)", min_value=1.0, value=float(precios_actuales.get("Ceramica_m2", 450.0)))
-            nuevos_precios["Pintura_galon"] = st.number_input("Pintura Vinílica Premium (RD$/galón)", min_value=1.0, value=float(precios_actuales.get("Pintura_galon", 1200.0)))
-        with col4:
-            nuevos_precios["Puerta_interior"] = st.number_input("Puerta Interior estándar con herraje (RD$/ud)", min_value=1.0, value=float(precios_actuales.get("Puerta_interior", 8500.0)))
-
-    st.markdown("---")
-    if st.button("💾 Guardar y Sincronizar Libro de Precios", use_container_width=True, type="primary"):
-        # Guardar de forma atómica usando tus utilitarios compartidos
-        if hasattr(pb, 'save_prices'):
-            pb.save_prices(nuevos_precios)
-        else:
-            write_json_atomic(ruta_preciobook, nuevos_precios)
-            
-        st.session_state["precios_sincronizados"] = nuevos_precios
-        st.success("¡Libro de precios actualizado con éxito! Los cambios se guardaron de forma segura en la base de datos atómica.")
-
-    # Guardamos siempre en session_state para que el calculador lo lea sin re-leer el disco cada segundo
-    if "precios_sincronizados" not in st.session_state:
-        st.session_state["precios_sincronizados"] = nuevos_precios
+# ============================================================================
+# NOTA (revisión de pantallas, 2026-07-26): existía aquí
+# `render_pestana_configuracion_precios()`, un tercer panel de precios,
+# completamente inalcanzable -- ninguna pantalla la llamaba, ni siquiera un
+# test. Solo cubría 9 de los 39 materiales y su fallback usaba
+# `Panel_Muro: 925.00`, el precio sin fuente que ya se corrigió a 1,072
+# (Covintec México, ver utils/pricebook.py). Además llamaba a
+# `pb.get_all_prices()` / `pb.save_prices()`, métodos que no existen en la
+# clase `Pricebook` actual (son `load()` / `save()`).
+#
+# El panel de precios real y con las 39 partidas está en
+# `ui_presupuesto.py::render_pestana_pricebook()`. Se retira el duplicado en
+# vez de mantenerlo como código muerto: a diferencia de utils/calculations.py
+# (que se conservó marcado por si sus fórmulas resultan útiles), aquí no hay
+# ninguna fórmula que rescatar, solo una copia obsoleta de la interfaz.
+# ============================================================================
 
 
 def pagina_plano_estructura():

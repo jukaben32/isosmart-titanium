@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
-def _dist(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+def _dist(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
-def points_from_object(obj: Dict[str, Any]) -> Optional[List[Tuple[float, float]]]:
+def points_from_object(obj: dict[str, Any]) -> list[tuple[float, float]] | None:
     """
     Extrae puntos absolutos (px) de objetos fabric.js comunes:
     - polygon: puntos relativos + (left,top)
@@ -25,7 +25,7 @@ def points_from_object(obj: Dict[str, Any]) -> Optional[List[Tuple[float, float]
         pts = obj.get("points")
         if not isinstance(pts, list) or len(pts) < 2:
             return None
-        out: List[Tuple[float, float]] = []
+        out: list[tuple[float, float]] = []
         for p in pts:
             if not isinstance(p, dict):
                 continue
@@ -40,7 +40,7 @@ def points_from_object(obj: Dict[str, Any]) -> Optional[List[Tuple[float, float]
         path = obj.get("path")
         if not isinstance(path, list):
             return None
-        out2: List[Tuple[float, float]] = []
+        out2: list[tuple[float, float]] = []
         for cmd in path:
             if not isinstance(cmd, list) or len(cmd) < 3:
                 continue
@@ -54,13 +54,13 @@ def points_from_object(obj: Dict[str, Any]) -> Optional[List[Tuple[float, float]
     return None
 
 
-def extract_line_segments(objects: List[Dict[str, Any]]) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
+def extract_line_segments(objects: list[dict[str, Any]]) -> list[tuple[tuple[float, float], tuple[float, float]]]:
     """
     Devuelve segmentos (a,b) en px para:
     - type='line' (x1,y1,x2,y2)
     - polyline/path (segmentos consecutivos)
     """
-    segs: List[Tuple[Tuple[float, float], Tuple[float, float]]] = []
+    segs: list[tuple[tuple[float, float], tuple[float, float]]] = []
     if not objects:
         return segs
 
@@ -84,11 +84,11 @@ def extract_line_segments(objects: List[Dict[str, Any]]) -> List[Tuple[Tuple[flo
     return segs
 
 
-def extract_points(objects: List[Dict[str, Any]]) -> List[Tuple[float, float]]:
+def extract_points(objects: list[dict[str, Any]]) -> list[tuple[float, float]]:
     """
     Extrae puntos (centros) desde objetos 'circle' fabric.js para marcar fixtures (tomas, sanitarios, etc.).
     """
-    out: List[Tuple[float, float]] = []
+    out: list[tuple[float, float]] = []
     if not objects:
         return out
     for obj in objects:
@@ -103,7 +103,33 @@ def extract_points(objects: List[Dict[str, Any]]) -> List[Tuple[float, float]]:
     return out
 
 
-def scale_from_canvas_line(objects: List[Dict[str, Any]], real_length_m: float) -> Optional[float]:
+def contar_lineas_calibracion(objects: list[dict[str, Any]]) -> int:
+    """
+    Cuenta cuántos objetos `type='line'` hay en el trazado.
+
+    `scale_from_canvas_line()` siempre usa la PRIMERA línea encontrada, en
+    silencio. Si el usuario dibuja más de una (por error, o para calibrar
+    dos veces), la calibración usada puede no ser la que el usuario cree que
+    está usando. Este contador permite que la UI lo advierta explícitamente
+    en vez de dejarlo como un supuesto invisible.
+    """
+    if not objects:
+        return 0
+    return sum(1 for obj in objects if isinstance(obj, dict) and obj.get("type") == "line")
+
+
+def contar_poligonos(objects: list[dict[str, Any]]) -> int:
+    """Análogo a `contar_lineas_calibracion()`, para `polygon_from_canvas()`."""
+    if not objects:
+        return 0
+    return sum(
+        1 for obj in objects
+        if isinstance(obj, dict) and obj.get("type") == "polygon"
+        and isinstance(obj.get("points"), list) and len(obj["points"]) >= 3
+    )
+
+
+def scale_from_canvas_line(objects: list[dict[str, Any]], real_length_m: float) -> float | None:
     """
     Devuelve metros por pixel (m/px) usando la PRIMERA línea dibujada.
     Compatible con objetos tipo "line" del drawable canvas.
@@ -123,7 +149,7 @@ def scale_from_canvas_line(objects: List[Dict[str, Any]], real_length_m: float) 
     return None
 
 
-def polygon_from_canvas(objects: List[Dict[str, Any]]) -> Optional[List[Tuple[float, float]]]:
+def polygon_from_canvas(objects: list[dict[str, Any]]) -> list[tuple[float, float]] | None:
     """
     Extrae el PRIMER polígono (type='polygon') y devuelve puntos absolutos en pixeles.
     drawable-canvas guarda puntos relativos a (left, top).
@@ -138,7 +164,7 @@ def polygon_from_canvas(objects: List[Dict[str, Any]]) -> Optional[List[Tuple[fl
             continue
         left = float(obj.get("left", 0.0))
         top = float(obj.get("top", 0.0))
-        out: List[Tuple[float, float]] = []
+        out: list[tuple[float, float]] = []
         for p in pts:
             if not isinstance(p, dict):
                 continue
@@ -152,7 +178,7 @@ def polygon_from_canvas(objects: List[Dict[str, Any]]) -> Optional[List[Tuple[fl
     return None
 
 
-def polygon_area_perimeter(points: List[Tuple[float, float]]) -> Tuple[float, float]:
+def polygon_area_perimeter(points: list[tuple[float, float]]) -> tuple[float, float]:
     """
     Shoelace para área (px^2) y perímetro (px).
     """

@@ -1,13 +1,23 @@
-# -*- coding: utf-8 -*-
 """
 Módulo de cálculos avanzados para IsoSmart Titanium
+
+⚠️ CÓDIGO MUERTO (verificado 2026-07-26): ninguna pantalla de la app importa
+`CalculadoraEstructural`, `CalculadoraMateriales` ni
+`calcular_costo_unitario_compuesto`. El único importador es su propio test
+(`tests/test_calculations.py`). No es el motor legado (ese es
+`utils/calculador.py`) ni el motor actual (`utils/qto.py`): es un tercer
+prototipo que nunca llegó a conectarse a la interfaz.
+
+Antes de borrarlo: si alguna de estas fórmulas es útil, migrarla a
+`utils/qto.py` con su fuente documentada (`docs/BASE_TECNICA_EPS_ICF.md` o
+`utils/fuentes.py`), igual que el resto del motor. Si no, este archivo puede
+eliminarse sin que nada deje de funcionar.
 """
 
 import math
-import numpy as np
-from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
+from typing import Dict, Tuple
 
 
 class TipoSistema(Enum):
@@ -106,7 +116,7 @@ class CalculadoraEstructural:
         return max(espesor, 12)  # Mínimo 12 cm
 
     @staticmethod
-    def calcular_acero_losa(area: float, luz: float) -> Dict[str, float]:
+    def calcular_acero_losa(area: float, luz: float) -> dict[str, float]:
         """
         Calcula acero de refuerzo para losa
 
@@ -142,7 +152,7 @@ class CalculadoraEstructural:
     @staticmethod
     def calcular_volumen_concreto(area_muros: float, area_losa: float,
                                   espesor_muro: float = 0.12,
-                                  espesor_losa: float = 0.12) -> Dict[str, float]:
+                                  espesor_losa: float = 0.12) -> dict[str, float]:
         """
         Calcula volumen de concreto necesario
 
@@ -176,7 +186,7 @@ class CalculadoraMateriales:
     """Cálculo detallado de materiales"""
 
     @staticmethod
-    def calcular_materiales_muro(area_muros: float, sistema: str) -> Dict[str, float]:
+    def calcular_materiales_muro(area_muros: float, sistema: str) -> dict[str, float]:
         """
         Calcula materiales necesarios para muros
 
@@ -217,7 +227,7 @@ class CalculadoraMateriales:
         return resultados
 
     @staticmethod
-    def calcular_acabados(area_construida: float, area_muros: float) -> Dict[str, float]:
+    def calcular_acabados(area_construida: float, area_muros: float) -> dict[str, float]:
         """
         Calcula materiales de acabados
 
@@ -249,7 +259,7 @@ class CalculadoraMateriales:
         }
 
 
-def calcular_costo_unitario_compuesto(materiales: Dict[str, Tuple[float, float]]) -> float:
+def calcular_costo_unitario_compuesto(materiales: dict[str, tuple[float, float]]) -> float:
     """
     Calcula costo unitario compuesto
 
