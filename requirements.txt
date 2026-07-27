@@ -19,7 +19,8 @@ PyYAML>=6.0,<7.0
 plotly>=5.18,<7.0
 
 # IA
-google-generativeai>=0.4,<0.9      # TODO: migrar a `google-genai` (SDK nuevo)
+google-genai>=1.0,<2.0              # migrado 2026-07-27: google-generativeai llegó a
+                                      # su fin de soporte permanente el 30-nov-2025
 
 # Imagen / PDF
 Pillow>=10.0,<12.0

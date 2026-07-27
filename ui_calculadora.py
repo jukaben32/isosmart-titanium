@@ -6,7 +6,6 @@ import os
 from datetime import datetime
 from io import BytesIO
 
-import google.generativeai as genai
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -29,6 +28,7 @@ from utils.estado import ProyectoState
 # Helpers compartidos desde ui_core
 from utils.estilos import boton_enlace  # noqa: E402
 from utils.financiera import AnalisisFinanciero
+from utils.gemini_client import crear_modelo_gemini
 from utils.gemini_plan import analyze_plan_image_with_gemini
 from utils.pdf_utils import pdf_first_page_to_image
 from utils.plan_geometry import (
@@ -715,9 +715,10 @@ def pagina_plano_estructura():
         model_vision = None
         if api_key:
             try:
-                genai.configure(api_key=api_key)
-                # Modelo con visión (si está disponible en tu cuenta)
-                model_vision = genai.GenerativeModel("gemini-1.5-flash")
+                # Migrado al SDK nuevo (google-genai) -- ver
+                # utils/gemini_client.py. Gemini 3.6 Flash acepta imagen
+                # como input multimodal igual que el modelo viejo.
+                model_vision = crear_modelo_gemini(api_key)
             except Exception as e:
                 st.warning(f"No pude inicializar el modelo con visión: {e}")
 

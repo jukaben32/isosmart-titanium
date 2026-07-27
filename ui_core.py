@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import google.generativeai as genai
+from utils.gemini_client import crear_modelo_gemini
 import streamlit as st
 
 from utils.ai_media import generate_facade_image_fal, generate_video_luma
@@ -107,11 +107,16 @@ def create_download_link(pdf_content: bytes, filename: str,
 # tipo `Any`. Como anotación no fallaba, pero al modernizar la sintaxis a
 # `any | None` se convirtió en TypeError al importar el módulo.
 def initialize_gemini(api_key: str) -> Any | None:
-    if not api_key:
-        return None
+    """
+    Migrado al SDK nuevo (google-genai) vía utils/gemini_client.py -- el
+    viejo (google-generativeai, usado aquí con `genai.GenerativeModel`)
+    llegó a su fin de soporte permanente el 30 de noviembre de 2025, y el
+    modelo Gemini 1.5 que se usaba es de una generación anterior a Gemini
+    2.0 Flash, que a su vez se apagó el 1 de junio de 2026 -- casi con toda
+    seguridad ya no respondía en absoluto.
+    """
     try:
-        genai.configure(api_key=api_key)
-        return genai.GenerativeModel('gemini-1.5-flash')
+        return crear_modelo_gemini(api_key)
     except Exception as e:
         st.error(f"Error configurando Gemini: {e}")
         return None
@@ -216,8 +221,7 @@ def render_text_design_assistant(context_key: str):
                 return
 
             try:
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel("gemini-1.5-flash")
+                model = crear_modelo_gemini(api_key)
                 with st.spinner("🧠 Interpretando tu idea..."):
                     params, raw = analyze_text_design_with_gemini(model, descripcion)
                 st.session_state["text_design_raw"] = raw
