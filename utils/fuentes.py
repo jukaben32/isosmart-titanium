@@ -137,11 +137,16 @@ FICHA_TERMOPANEL = Fuente(
     url="https://isotexdominicana.com/wp-content/uploads/2018/09/TERMOPANEL.pdf",
 )
 FICHA_ISOLOSA = Fuente(
-    valor="Losa nervada, módulo 0.60 m, malla electrosoldada",
+    valor="Módulo 0.60 m (nervio 0.15 m + EPS 0.45 m), perfil calibre 20 removible",
     tipo="referencia",
-    cita="Ficha técnica Isolosa® (EPS + perfil metálico como encofrado, "
-         "concreto colado en los nervios). Tabla de espesores no "
-         "disponible completa todavía.",
+    cita="Ficha técnica Isolosa® completa (PDF compartido por el usuario, "
+         "2026-07-26): confirma el módulo horizontal y las dimensiones del "
+         "perfil metálico removible. Los espesores (t/h/H/s1 en el "
+         "diagrama) siguen sin valor numérico -- el propio folleto los "
+         "deja como \"variable para adaptarse a requisitos estructurales\", "
+         "una tabla de ingeniería (claro/carga) que este documento "
+         "comercial no incluye. Confirma que el modelo \"instalado por m²\" "
+         "es la estrategia correcta para este sistema.",
     url="https://isotexdominicana.com/wp-content/uploads/2018/09/ISOLOSA-2.pdf",
 )
 FICHA_ISOFILL = Fuente(

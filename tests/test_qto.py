@@ -1048,3 +1048,27 @@ def test_fichas_de_isotex_dominicana_techo_tienen_fuente():
     for ficha in (FICHA_TERMOPANEL, FICHA_ISOLOSA, FICHA_ISOFILL):
         assert ficha.cita
         assert ficha.tipo == "referencia"
+
+
+def test_isolosa_documenta_modulo_confirmado_y_espesor_variable():
+    """
+    El usuario compartió el PDF completo de la ficha técnica de Isolosa,
+    con el diagrama de dimensiones. Confirma el módulo (0.60 m = 0.15 m
+    nervio + 0.45 m EPS) y el perfil metálico removible (0.15x0.04 m),
+    pero el espesor de la losa (t/h/H/s1 en el diagrama) NO tiene valor
+    numérico fijo -- depende del diseño estructural del proyecto (claro y
+    carga), no es un dato de catálogo. Esto confirma que el modelo
+    "instalado por m²" (sin desglose de materiales) es la estrategia
+    correcta, no una limitación de extracción de PDF.
+    """
+    techo_alt = P["techos_alternativos"]["isolosa"]
+    assert techo_alt["modulo_total_m"] == pytest.approx(0.60)
+    assert techo_alt["nervio_concreto_m"] + techo_alt["bloque_eps_m"] == pytest.approx(
+        techo_alt["modulo_total_m"]
+    )
+    assert techo_alt["perfil_calibre_20_ancho_m"] == pytest.approx(0.15)
+
+    from utils.fuentes import FICHA_ISOLOSA
+
+    assert "variable" in FICHA_ISOLOSA.cita.lower()
+    assert "estructural" in FICHA_ISOLOSA.cita.lower()

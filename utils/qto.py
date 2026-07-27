@@ -109,10 +109,12 @@ LIMITACIONES_CONOCIDAS = (
     "cotizado por m² instalado. NINGUNO tiene precio público todavía (ni "
     "Isotex ni la competencia) -- cualquier presupuesto que use uno de "
     "estos sistemas está INCOMPLETO hasta actualizar con la cotización "
-    "real. Termolosa/Isolosa/Isofill no tienen tabla de espesores completa "
-    "(sin desglose de materiales, solo precio instalado). El techo sigue "
-    "modelándose como área en planta, no como superficie inclinada real "
-    "(diferencia pequeña a la pendiente mínima de Termopanel, 6%).",
+    "real. Isolosa confirmado con la ficha completa (módulo 0.60 m, "
+    "nervio 0.15 m + EPS 0.45 m), pero el espesor de la losa (t/h/H/s1) "
+    "depende del claro y la carga estructural del proyecto -- no es un "
+    "dato de catálogo, requiere el diseño estructural real. El techo "
+    "sigue modelándose como área en planta, no como superficie inclinada "
+    "real (diferencia pequeña a la pendiente mínima de Termopanel, 6%).",
     "Techos a dos aguas: requieren malla cumbrera en el vértice superior "
     "(no modelado; este motor solo calcula losa plana/azotea).",
     "Obra híbrida (muros EPS que conectan con columnas de concreto o "

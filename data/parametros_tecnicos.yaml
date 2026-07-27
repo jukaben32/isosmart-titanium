@@ -130,8 +130,26 @@ techos_alternativos:
   termolosa:
     espesor_min_pulg: 4
     espesor_max_pulg: 20
+  # [doc] ISOLOSA-2.pdf, diagrama de dimensiones (confirmado con el PDF
+  # completo que el usuario compartió, 2026-07-26): módulo de 0.60 m =
+  # 0.15 m de nervio de concreto (perfil metálico calibre 20 REMOVIBLE,
+  # 0.15x0.04 m con pestaña de 0.01 m, se retira y reutiliza -- no se
+  # consume por m²) + 0.45 m de bloque EPS. Cubre falta de EPS: 0.06 m.
+  #
+  # Los espesores (t, h, H, s1 en el diagrama) siguen SIN valor numérico:
+  # el propio folleto los deja como "variable para adaptarse a requisitos
+  # estructurales" -- dependen del claro y la carga del proyecto, es una
+  # tabla de ingeniería que este documento comercial no incluye. Confirma
+  # que la estrategia de "instalado por m²" (sin desglose de materiales)
+  # es la correcta para este sistema: no hay manera de calcular cantidad
+  # de concreto/acero sin esa tabla de diseño estructural.
   isolosa:
-    modulo_nervio_m: 0.60        # [doc] ISOLOSA-2.pdf
+    modulo_total_m: 0.60         # [doc]
+    nervio_concreto_m: 0.15      # [doc]
+    bloque_eps_m: 0.45           # [doc]
+    perfil_calibre_20_ancho_m: 0.15   # [doc] removible, se reutiliza
+    perfil_calibre_20_alto_m: 0.04    # [doc]
+    cubre_falta_m: 0.06          # [doc]
   isofill:
     espesor_conocido_m: 0.17     # [doc] variante "BOVEDILLA ISOFILL DE ESPESOR 17 CM"
     ahorro_concreto_min: 0.20    # [doc] 20-30% de ahorro de concreto
