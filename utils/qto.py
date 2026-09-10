@@ -46,6 +46,7 @@ import pandas as pd
 
 from .dominio import Calidad, Sistema, normalizar_calidad, normalizar_sistema, normalizar_zona_riesgo
 from .geometria import Geometria
+from .instalaciones import InstalacionesDetalle
 from .parametros import cargar_parametros
 from .pricebook import DEFAULT_PRICEBOOK, PRECIOS_POR_VERIFICAR
 
@@ -152,6 +153,7 @@ class MotorQTO:
         aplanado_mecanizado: bool = False,
         parametros: dict[str, Any] | None = None,
         sistema_techo: str | None = None,
+        instalaciones: InstalacionesDetalle | dict[str, Any] | None = None,
     ):
         self.geo = geometria
         self.precios = dict(precios or DEFAULT_PRICEBOOK)
@@ -160,6 +162,11 @@ class MotorQTO:
         self.zona = normalizar_zona_riesgo(zona_riesgo)
         self.aplanado_mecanizado = aplanado_mecanizado
         self.p = parametros or cargar_parametros()
+        self.instalaciones = (
+            instalaciones
+            if isinstance(instalaciones, InstalacionesDetalle)
+            else InstalacionesDetalle.desde_dict(instalaciones)
+        )
 
         # [doc] Isotex Dominicana (proveedor único del usuario), secciones
         # Techos y Losas: termopanel (sándwich sin concreto, requiere
@@ -609,6 +616,68 @@ class MotorQTO:
 
     def _instalaciones(self) -> list[Partida]:
         area = self.geo.area_m2
+        i = self.instalaciones
+        if i.tiene_detalle:
+            partidas = [
+                Partida("Instalaciones", "Tablero eléctrico",
+                        "Centro de carga, breakers principales y accesorios básicos",
+                        "ud", max(1, i.tableros), 0.0, "Tablero_electrico_ud",
+                        self._precio("Tablero_electrico_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Tomacorrientes",
+                        "Salidas completas con caja, canalización corta, cableado y placa",
+                        "ud", i.tomacorrientes, 0.0, "Salida_tomacorriente_ud",
+                        self._precio("Salida_tomacorriente_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Interruptores",
+                        "Salidas de interruptor con caja, cableado y placa",
+                        "ud", i.interruptores, 0.0, "Salida_interruptor_ud",
+                        self._precio("Salida_interruptor_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Puntos de luz",
+                        "Salida de luminaria interior/exterior sin lámpara decorativa especial",
+                        "ud", i.luminarias, 0.0, "Punto_luz_ud",
+                        self._precio("Punto_luz_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Canalización eléctrica",
+                        "Tubería/conduit y recorridos principales medidos del plano",
+                        "ml", i.ml_canalizacion_electrica, 0.05, "Canalizacion_electrica_ml",
+                        self._precio("Canalizacion_electrica_ml"), "[supuesto]"),
+                Partida("Instalaciones", "Puntos de datos",
+                        "Salidas de red/WiFi/videoportero",
+                        "ud", i.puntos_datos, 0.0, "Punto_datos_ud",
+                        self._precio("Punto_datos_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Cámaras de seguridad",
+                        "Punto de cámara con canalización y cableado básico",
+                        "ud", i.camaras, 0.0, "Camara_seguridad_ud",
+                        self._precio("Camara_seguridad_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Puntos de agua fría/caliente",
+                        "Alimentación para lavamanos, duchas, WC, fregadero y lavandería",
+                        "ud", i.puntos_agua, 0.0, "Punto_agua_ud",
+                        self._precio("Punto_agua_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Puntos sanitarios",
+                        "Descargas sanitarias y ventilación básica por aparato",
+                        "ud", i.puntos_sanitarios, 0.0, "Punto_sanitario_ud",
+                        self._precio("Punto_sanitario_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Registros sanitarios",
+                        "Registros de inspección en línea sanitaria",
+                        "ud", i.registros_sanitarios, 0.0, "Registro_sanitario_ud",
+                        self._precio("Registro_sanitario_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Tubería de agua",
+                        "Recorrido principal de agua fría/caliente medido del plano",
+                        "ml", i.ml_tuberia_agua, 0.08, "Tuberia_agua_ml",
+                        self._precio("Tuberia_agua_ml"), "[supuesto]"),
+                Partida("Instalaciones", "Tubería sanitaria",
+                        "Recorrido sanitario principal medido del plano",
+                        "ml", i.ml_tuberia_sanitaria, 0.08, "Tuberia_sanitaria_ml",
+                        self._precio("Tuberia_sanitaria_ml"), "[supuesto]"),
+                Partida("Instalaciones", "Punto de gas",
+                        "Línea GLP básica hacia cocina",
+                        "ud", i.puntos_gas, 0.0, "Punto_gas_ud",
+                        self._precio("Punto_gas_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Preinstalación de climatización",
+                        "Punto para unidad split: drenaje, energía y pase de tuberías",
+                        "ud", i.puntos_clima, 0.0, "Punto_clima_ud",
+                        self._precio("Punto_clima_ud"), "[supuesto]"),
+            ]
+            return [p for p in partidas if p.cantidad > 0]
+
         return [
             Partida("Instalaciones", "Instalación eléctrica",
                     "Canalización, cableado, tableros y salidas",
@@ -771,7 +840,22 @@ class MotorQTO:
 
         precios = precios or DEFAULT_PRICEBOOK
         geo = Geometria(area_m2=120.0, perimetro_m=44.0, niveles=2)
-        motor = cls(geo, precios, calidad="alta")
+        instalaciones = InstalacionesDetalle(
+            tomacorrientes=1,
+            interruptores=1,
+            luminarias=1,
+            puntos_datos=1,
+            camaras=1,
+            ml_canalizacion_electrica=1,
+            puntos_agua=1,
+            puntos_sanitarios=1,
+            registros_sanitarios=1,
+            ml_tuberia_agua=1,
+            ml_tuberia_sanitaria=1,
+            puntos_gas=1,
+            puntos_clima=1,
+        )
+        motor = cls(geo, precios, calidad="alta", instalaciones=instalaciones)
         return frozenset(p.clave_precio for p in motor.partidas() if p.clave_precio)
 
     def presupuesto_formato_legado(self) -> pd.DataFrame:

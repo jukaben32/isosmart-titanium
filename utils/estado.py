@@ -95,7 +95,15 @@ class ProyectoState:
     n_dormitorios: int | None = None
     n_banos: int | None = None          # dormitorios_con_bano + banos_comunes
     n_puertas_interiores: int | None = None
+    n_puertas_exteriores: int | None = None
     n_ventanas: int | None = None
+    esquinas: int | None = None
+    ml_cocina: float | None = None
+    ancho_ventana_m: float = 0.90
+    alto_ventana_m: float = 0.90
+    ancho_puerta_m: float = 0.90
+    alto_puerta_m: float = 2.15
+    instalaciones_detalle: dict = field(default_factory=dict)
     habitaciones: list = field(default_factory=list)  # para el esquema de planta
 
     # ------------------------------------------------------------------
@@ -222,13 +230,33 @@ class ProyectoState:
             "niveles": "niveles",
             "altura_muro_m": "altura_muro_m",
             "espesor_muro_m": "espesor_muro_m",
+            "ventanas": "n_ventanas",
+            "puertas_interiores": "n_puertas_interiores",
+            "puertas_exteriores": "n_puertas_exteriores",
+            "banos": "n_banos",
+            "esquinas": "esquinas",
+            "ml_cocina": "ml_cocina",
+            "ancho_ventana_m": "ancho_ventana_m",
+            "alto_ventana_m": "alto_ventana_m",
+            "ancho_puerta_m": "ancho_puerta_m",
+            "alto_puerta_m": "alto_puerta_m",
         }
         for origen_clave, destino in mapeo.items():
             valor = datos.get(origen_clave)
             if valor is None or valor == "":
                 continue
             try:
-                setattr(self, destino, int(valor) if destino == "niveles" else float(valor))
+                if destino in {
+                    "niveles",
+                    "n_ventanas",
+                    "n_puertas_interiores",
+                    "n_puertas_exteriores",
+                    "n_banos",
+                    "esquinas",
+                }:
+                    setattr(self, destino, int(round(float(valor))))
+                else:
+                    setattr(self, destino, float(valor))
             except (TypeError, ValueError):
                 self.avisos.append(f"{origen_clave}: valor no numérico ignorado ({valor!r})")
 
@@ -270,6 +298,9 @@ class ProyectoState:
         if isinstance(datos.get("habitaciones"), list) and datos["habitaciones"]:
             self.habitaciones = datos["habitaciones"]
 
+        if isinstance(datos.get("instalaciones_detalle"), dict):
+            self.instalaciones_detalle = datos["instalaciones_detalle"]
+
         if origen:
             self.origen_metricas = origen
         return self.sanear()
@@ -284,9 +315,16 @@ class ProyectoState:
             perimetro_m=self.perimetro_m,
             altura_muro_m=self.altura_muro_m,
             niveles=self.niveles,
+            esquinas=self.esquinas,
             banos=self.n_banos,
+            puertas_exteriores=self.n_puertas_exteriores,
             puertas_interiores=self.n_puertas_interiores,
             ventanas=self.n_ventanas,
+            ml_cocina=self.ml_cocina,
+            ancho_ventana_m=self.ancho_ventana_m,
+            alto_ventana_m=self.alto_ventana_m,
+            ancho_puerta_m=self.ancho_puerta_m,
+            alto_puerta_m=self.alto_puerta_m,
         )
 
     def a_dict(self) -> dict[str, Any]:

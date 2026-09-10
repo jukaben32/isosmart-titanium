@@ -135,9 +135,12 @@ def test_ui_inicio_no_usa_el_motor_clasico():
     producía el 83.6% de ahorro constante (gris EPS vs terminada tradicional).
     """
     cuerpo = _cuerpo_sin_docstring_de_modulo("ui_inicio.py")
+    helper = _cuerpo_sin_docstring_de_modulo("utils/comparativa_inicio.py")
     assert "comparar_sistemas" not in cuerpo
-    assert "MotorQTO" in cuerpo
-    assert "comparar_con_tradicional" in cuerpo
+    assert "comparar_sistemas" not in helper
+    assert "calcular_comparativa_area" in cuerpo
+    assert "MotorQTO" in helper
+    assert "comparar_con_tradicional" in helper
 
 
 def test_ui_inicio_no_contiene_texto_fijo_sin_fuente():

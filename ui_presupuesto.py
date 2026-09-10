@@ -1,10 +1,12 @@
 """Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
 import os
+from io import BytesIO
 
 import pandas as pd
 import streamlit as st
 
 from ui_core import (
+    PDFGenerator,
     get_gemini_api_key_from_config,
     initialize_gemini,
 )
@@ -12,8 +14,11 @@ from ui_core import (
 # Helpers compartidos desde ui_core
 from ui_vision import render_integradora_vision_canvas
 from utils.estado import ProyectoState
+from utils.dxf_importer import analizar_dxf_bytes
+from utils.escenarios import calcular_escenarios
 from utils.qto import CATEGORIAS_OBRA_GRIS, MotorQTO
 from utils.financiera import AnalisisFinancieroRD
+from utils.instalaciones import InstalacionesDetalle
 from utils.pricebook import Pricebook
 
 
@@ -180,28 +185,75 @@ def pagina_presupuesto_detallado():
         "(2.5 cm/cara), mallas, cimentación completa y mano de obra."
     )
 
+    estado_guardado = ProyectoState.cargar()
+
     with st.sidebar:
+        st.markdown("### 📥 Importar DXF")
+        archivo_dxf = st.file_uploader(
+            "Plano CAD (.dxf)",
+            type=["dxf"],
+            help="Lee capas como A-MUROS, A-PUERTAS, A-VENTANAS e I-* para alimentar el presupuesto.",
+        )
+        if archivo_dxf is not None:
+            try:
+                mediciones = analizar_dxf_bytes(archivo_dxf.getvalue())
+                st.success(
+                    f"Detectado: {mediciones.area_m2:,.2f} m², "
+                    f"{mediciones.perimetro_m:,.2f} ml, "
+                    f"{mediciones.ventanas} ventanas, "
+                    f"{mediciones.puertas_interiores + mediciones.puertas_exteriores} puertas."
+                )
+                if mediciones.advertencias:
+                    for advertencia in mediciones.advertencias:
+                        st.warning(advertencia)
+                if st.button("Usar mediciones del DXF", use_container_width=True):
+                    estado_dxf = ProyectoState.cargar()
+                    estado_dxf.aplicar_metricas(mediciones.a_metricas(), origen=f"DXF: {archivo_dxf.name}")
+                    estado_dxf.guardar()
+                    st.rerun()
+            except Exception as e:
+                st.error(f"No pude leer este DXF: {e}")
+
+        st.divider()
         st.markdown("### 📐 Geometría")
         area = st.number_input("Área construida total (m²)", min_value=20.0, max_value=5000.0,
-                               value=float(st.session_state.get("calc_area_m2", 120.0)), step=10.0)
+                               value=float(estado_guardado.area_m2), step=10.0)
         perimetro = st.number_input("Perímetro de planta (m)", min_value=0.0, max_value=1000.0,
-                                    value=float(st.session_state.get("calc_perimetro_m", 0.0) or 0.0),
+                                    value=float(estado_guardado.perimetro_m or 0.0),
                                     step=1.0,
                                     help="0 = estimar automáticamente con proporción 3:2")
         altura = st.number_input("Altura de muro (m)", min_value=2.2, max_value=6.0,
-                                 value=float(st.session_state.get("calc_altura_muro_m", 2.8)), step=0.1)
+                                 value=float(estado_guardado.altura_muro_m), step=0.1)
         niveles = st.number_input("Niveles", min_value=1, max_value=20,
-                                  value=int(st.session_state.get("calc_niveles", 1)))
+                                  value=int(estado_guardado.niveles))
         # Antes ausente de la interfaz: una casa en L (6 esquinas típicas,
         # 4 convexas + 2 cóncavas) se calculaba siempre con 4 esquinas por
         # defecto, sin manera de corregirlo. Verificado con NotebookLM del
         # usuario: esquinas entrantes y salientes reciben el mismo
         # tratamiento (una tira interna + una externa cada una), así que
         # solo hace falta el conteo total, no distinguir el tipo.
-        esquinas = st.number_input("Número de esquinas", min_value=4, max_value=20, value=4,
+        esquinas = st.number_input("Número de esquinas", min_value=4, max_value=20,
+                                   value=int(estado_guardado.esquinas or 4),
                                    help="4 para una planta rectangular simple. Una casa en L "
                                         "típica tiene 6 (4 convexas + 2 cóncavas); ambos tipos "
                                         "llevan el mismo tratamiento de malla esquinera.")
+
+        with st.expander("Programa real de ambientes", expanded=False):
+            ventanas = st.number_input("Ventanas", min_value=0, max_value=500,
+                                       value=int(estado_guardado.n_ventanas or 0),
+                                       help="0 = estimación automática por área")
+            puertas_interiores = st.number_input("Puertas interiores", min_value=0, max_value=500,
+                                                 value=int(estado_guardado.n_puertas_interiores or 0),
+                                                 help="0 = estimación automática por área")
+            puertas_exteriores = st.number_input("Puertas exteriores", min_value=0, max_value=100,
+                                                 value=int(estado_guardado.n_puertas_exteriores or 0),
+                                                 help="0 = estimación automática de la app")
+            banos = st.number_input("Baños", min_value=0, max_value=100,
+                                    value=int(estado_guardado.n_banos or 0),
+                                    help="0 = estimación automática por área")
+            ml_cocina = st.number_input("Cocina (metros lineales)", min_value=0.0, max_value=200.0,
+                                        value=float(estado_guardado.ml_cocina or 0.0), step=0.5,
+                                        help="0 = estimación automática por área")
 
         st.markdown("### ⚙️ Configuración")
         sistema = st.selectbox("Sistema", ["Paneles Isotex", "ICF Proform"])
@@ -240,14 +292,44 @@ def pagina_presupuesto_detallado():
             col_v1, col_v2 = st.columns(2)
             with col_v1:
                 ancho_ventana = st.number_input("Ancho de ventana (m)", min_value=0.3, max_value=4.0,
-                                                value=0.90, step=0.1)
+                                                value=float(estado_guardado.ancho_ventana_m), step=0.1)
                 ancho_puerta = st.number_input("Ancho de puerta (m)", min_value=0.5, max_value=2.5,
-                                               value=0.90, step=0.1)
+                                               value=float(estado_guardado.ancho_puerta_m), step=0.1)
             with col_v2:
                 alto_ventana = st.number_input("Alto de ventana (m)", min_value=0.3, max_value=3.0,
-                                               value=0.90, step=0.1)
+                                               value=float(estado_guardado.alto_ventana_m), step=0.1)
                 alto_puerta = st.number_input("Alto de puerta (m)", min_value=1.8, max_value=3.0,
-                                              value=2.15, step=0.05)
+                                              value=float(estado_guardado.alto_puerta_m), step=0.05)
+
+        detalle_guardado = InstalacionesDetalle.desde_dict(estado_guardado.instalaciones_detalle)
+        with st.expander("🔌 Instalaciones detalladas", expanded=False):
+            st.caption("Si dejas todo en 0, la app usa el cálculo grueso por m².")
+            tomacorrientes = st.number_input("Tomacorrientes", min_value=0, max_value=1000,
+                                             value=detalle_guardado.tomacorrientes)
+            interruptores = st.number_input("Interruptores", min_value=0, max_value=1000,
+                                            value=detalle_guardado.interruptores)
+            luminarias = st.number_input("Luminarias", min_value=0, max_value=1000,
+                                         value=detalle_guardado.luminarias)
+            puntos_datos = st.number_input("Puntos de datos", min_value=0, max_value=500,
+                                           value=detalle_guardado.puntos_datos)
+            camaras = st.number_input("Cámaras", min_value=0, max_value=500,
+                                      value=detalle_guardado.camaras)
+            ml_electrica = st.number_input("Canalización eléctrica (ml)", min_value=0.0, max_value=10000.0,
+                                           value=float(detalle_guardado.ml_canalizacion_electrica), step=1.0)
+            puntos_agua = st.number_input("Puntos de agua", min_value=0, max_value=1000,
+                                          value=detalle_guardado.puntos_agua)
+            puntos_sanitarios = st.number_input("Puntos sanitarios", min_value=0, max_value=1000,
+                                                value=detalle_guardado.puntos_sanitarios)
+            registros_sanitarios = st.number_input("Registros sanitarios", min_value=0, max_value=500,
+                                                   value=detalle_guardado.registros_sanitarios)
+            ml_agua = st.number_input("Tubería de agua (ml)", min_value=0.0, max_value=10000.0,
+                                      value=float(detalle_guardado.ml_tuberia_agua), step=1.0)
+            ml_sanitaria = st.number_input("Tubería sanitaria (ml)", min_value=0.0, max_value=10000.0,
+                                           value=float(detalle_guardado.ml_tuberia_sanitaria), step=1.0)
+            puntos_gas = st.number_input("Puntos de gas", min_value=0, max_value=100,
+                                         value=detalle_guardado.puntos_gas)
+            puntos_clima = st.number_input("Puntos de clima", min_value=0, max_value=500,
+                                           value=detalle_guardado.puntos_clima)
 
     geo = Geometria(
         area_m2=area,
@@ -255,11 +337,50 @@ def pagina_presupuesto_detallado():
         altura_muro_m=altura,
         niveles=int(niveles),
         esquinas=int(esquinas),
+        ventanas=int(ventanas) or None,
+        puertas_interiores=int(puertas_interiores) or None,
+        puertas_exteriores=int(puertas_exteriores) or None,
+        banos=int(banos) or None,
+        ml_cocina=float(ml_cocina) or None,
         ancho_ventana_m=ancho_ventana,
         alto_ventana_m=alto_ventana,
         ancho_puerta_m=ancho_puerta,
         alto_puerta_m=alto_puerta,
     )
+    instalaciones = InstalacionesDetalle(
+        tomacorrientes=int(tomacorrientes),
+        interruptores=int(interruptores),
+        luminarias=int(luminarias),
+        puntos_datos=int(puntos_datos),
+        camaras=int(camaras),
+        ml_canalizacion_electrica=float(ml_electrica),
+        puntos_agua=int(puntos_agua),
+        puntos_sanitarios=int(puntos_sanitarios),
+        registros_sanitarios=int(registros_sanitarios),
+        ml_tuberia_agua=float(ml_agua),
+        ml_tuberia_sanitaria=float(ml_sanitaria),
+        puntos_gas=int(puntos_gas),
+        puntos_clima=int(puntos_clima),
+    )
+
+    estado_actualizado = ProyectoState.cargar()
+    estado_actualizado.area_m2 = float(area)
+    estado_actualizado.perimetro_m = float(perimetro) or None
+    estado_actualizado.altura_muro_m = float(altura)
+    estado_actualizado.niveles = int(niveles)
+    estado_actualizado.esquinas = int(esquinas)
+    estado_actualizado.n_ventanas = int(ventanas) or None
+    estado_actualizado.n_puertas_interiores = int(puertas_interiores) or None
+    estado_actualizado.n_puertas_exteriores = int(puertas_exteriores) or None
+    estado_actualizado.n_banos = int(banos) or None
+    estado_actualizado.ml_cocina = float(ml_cocina) or None
+    estado_actualizado.ancho_ventana_m = float(ancho_ventana)
+    estado_actualizado.alto_ventana_m = float(alto_ventana)
+    estado_actualizado.ancho_puerta_m = float(ancho_puerta)
+    estado_actualizado.alto_puerta_m = float(alto_puerta)
+    estado_actualizado.instalaciones_detalle = instalaciones.a_dict() if instalaciones.tiene_detalle else {}
+    estado_actualizado.guardar()
+
     precios = st.session_state.get("precios_sincronizados") or Pricebook(
         os.path.join("data", "pricebook.json")
     ).load()
@@ -267,7 +388,7 @@ def pagina_presupuesto_detallado():
     try:
         motor = MotorQTO(geo, precios, sistema=sistema, calidad=calidad,
                          zona_riesgo=zona, aplanado_mecanizado=lanzadora,
-                         sistema_techo=sistema_techo)
+                         sistema_techo=sistema_techo, instalaciones=instalaciones)
         df = motor.presupuesto()
     except (KeyError, ValueError) as e:
         st.error(f"No se pudo calcular el presupuesto: {e}")
@@ -299,6 +420,11 @@ def pagina_presupuesto_detallado():
         st.dataframe(pd.DataFrame([geo.resumen()]).T.rename(columns={0: "Valor"}),
                      use_container_width=True)
 
+    if instalaciones.tiene_detalle:
+        with st.expander("🔌 Instalaciones usadas por el cálculo", expanded=False):
+            st.dataframe(pd.DataFrame([instalaciones.a_dict()]).T.rename(columns={0: "Cantidad"}),
+                         use_container_width=True)
+
     # -- comparación gris vs gris ----------------------------------------
     comp = motor.comparar_con_tradicional()
     st.markdown("### ⚖️ Comparación con construcción tradicional")
@@ -318,6 +444,24 @@ def pagina_presupuesto_detallado():
                         comp["tradicional"]["dias"]],
     }).style.format({"EPS / ICF": "{:,.0f}", "Tradicional": "{:,.0f}"}),
         use_container_width=True)
+
+    st.markdown("### 🧭 Escenarios rápidos")
+    escenarios_df = calcular_escenarios(geo, precios, instalaciones=instalaciones)
+    st.dataframe(
+        escenarios_df.style.format({
+            "total": "RD$ {:,.0f}",
+            "costo_m2": "RD$ {:,.0f}",
+            "obra_gris": "RD$ {:,.0f}",
+            "obra_terminada": "RD$ {:,.0f}",
+            "ahorro_total_pct": "{:.1f}%",
+        }),
+        use_container_width=True,
+    )
+    if escenarios_df["incompleto"].any():
+        st.warning(
+            "Los escenarios con techo Isotex real aparecen como incompletos si su precio "
+            "por m² sigue en RD$0.00. Esa parte queda pendiente hasta tener cotización."
+        )
 
     # -- desglose ---------------------------------------------------------
     st.markdown("### 📊 Desglose por categoría")
@@ -357,3 +501,39 @@ def pagina_presupuesto_detallado():
         mime="text/csv",
         use_container_width=True,
     )
+
+    col_desc1, col_desc2 = st.columns(2)
+    with col_desc1:
+        excel = BytesIO()
+        with pd.ExcelWriter(excel, engine="xlsxwriter") as writer:
+            df.to_excel(writer, sheet_name="Partidas", index=False)
+            motor.resumen_por_categoria().to_excel(writer, sheet_name="Resumen", index=False)
+            por_verificar.to_excel(writer, sheet_name="Precios por verificar", index=False)
+            escenarios_df.to_excel(writer, sheet_name="Escenarios", index=False)
+        st.download_button(
+            "📊 Descargar Excel completo",
+            data=excel.getvalue(),
+            file_name=f"presupuesto_detallado_{int(area)}m2.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+    with col_desc2:
+        pdf = PDFGenerator().generar_propuesta(
+            "Proyecto Residencial",
+            {
+                "area": area,
+                "sistema": sistema,
+                "calidad": calidad,
+                "zona_riesgo": zona,
+            },
+            motor.presupuesto_formato_legado(),
+            motor.total(),
+        )
+        st.download_button(
+            "📄 Descargar PDF comercial",
+            data=pdf,
+            file_name=f"propuesta_comercial_{int(area)}m2.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )

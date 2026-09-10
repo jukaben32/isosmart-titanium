@@ -27,6 +27,8 @@ import os
 
 import streamlit as st
 
+from utils.comparativa_inicio import calcular_comparativa_area
+from utils.estado import ProyectoState
 from utils.estilos import caja_info, encabezado, inyectar_css, tarjeta_metrica
 from utils.fuentes import (
     COSTO_TRADICIONAL_RD_M2,
@@ -37,9 +39,7 @@ from utils.fuentes import (
     TIPO_CAMBIO_MXN_DOP,
     TIPO_CAMBIO_URL,
 )
-from utils.geometria import Geometria
 from utils.pricebook import PRECIOS_POR_VERIFICAR, Pricebook
-from utils.qto import MotorQTO
 
 
 def _footnote(fuente) -> None:
@@ -60,16 +60,49 @@ def pagina_inicio():
     st.divider()
 
     # -- comparativa real, calculada con el motor QTO -----------------------
-    st.markdown("### 📊 Comparativa para una vivienda de 120 m²")
+    estado = ProyectoState.cargar()
+    precios = Pricebook(os.path.join("data", "pricebook.json")).load()
+    area_base = int(round(estado.area_m2 or 120.0))
+
+    area_inicio = st.slider(
+        "Área de construcción (m²)",
+        min_value=40,
+        max_value=500,
+        value=max(40, min(500, area_base)),
+        step=10,
+        key="inicio_area_m2",
+    )
+    datos = calcular_comparativa_area(
+        area_inicio,
+        precios=precios,
+        sistema=estado.sistema,
+        calidad=estado.calidad,
+        niveles=estado.niveles,
+        altura_muro_m=estado.altura_muro_m,
+    )
+    comp = datos["comparativa"]
+
+    st.markdown(f"### 📊 Comparativa para una vivienda de {area_inicio:,.0f} m²")
     st.caption(
         "Calculado en vivo con `utils/qto.py` (motor de cantidades), no con cifras fijas. "
-        "Cambia el área en **🧾 Presupuesto Detallado** para ver cómo varía."
+        "La barra recalcula el presupuesto tentativo según el área del proyecto."
     )
 
-    precios = Pricebook(os.path.join("data", "pricebook.json")).load()
-    geo = Geometria(area_m2=120.0, perimetro_m=44.0, altura_muro_m=2.8, niveles=1)
-    motor = MotorQTO(geo, precios, sistema="Paneles Isotex", calidad="media")
-    comp = motor.comparar_con_tradicional()
+    col_area, col_accion = st.columns([2, 1])
+    with col_area:
+        st.caption(
+            f"Estimación rápida: {datos['geometria']['perimetro_m']:,.1f} ml de perímetro, "
+            f"{datos['geometria']['banos']} baños y {datos['geometria']['ventanas']} ventanas."
+        )
+    with col_accion:
+        if st.button("Usar esta área", type="secondary", use_container_width=True):
+            estado.area_m2 = float(area_inicio)
+            # Si el area cambia manualmente, el perimetro anterior de un DXF ya no
+            # representa esta nueva opcion tentativa.
+            estado.perimetro_m = None
+            estado.origen_metricas = "Inicio - area tentativa"
+            estado.guardar()
+            st.success("Área aplicada al presupuesto detallado.")
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -89,11 +122,10 @@ def pagina_inicio():
         f"tradicional — peras con manzanas. Ver `docs/BASE_TECNICA_EPS_ICF.md`."
     )
 
-    por_verificar = motor.partidas_por_verificar()
-    if not por_verificar.empty:
-        monto = por_verificar["subtotal"].sum()
+    if datos["monto_por_verificar"] > 0:
+        monto = datos["monto_por_verificar"]
         st.warning(
-            f"⚠️ RD$ {monto:,.0f} de este presupuesto ({monto/motor.total()*100:.0f}% del "
+            f"⚠️ RD$ {monto:,.0f} de este presupuesto ({datos['pct_por_verificar']:.0f}% del "
             f"total) usa precios de **referencia**, no cotizaciones de proveedor local. "
             f"Ver la sección de fuentes al final de esta página."
         )
