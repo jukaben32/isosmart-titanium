@@ -101,7 +101,37 @@ def test_sistema_solar_recomendado_coherente():
     assert r["capacidad_sistema_kw"] > 0
     assert 0 <= r["autoconsumo_pct"] <= 100
     assert r["costo_estimado_rd"] > 0
+    assert r["potencia_panel_w"] > 0
+    assert r["inversor_kw"] >= r["capacidad_sistema_kw"] * 0.70
+    assert r["area_techo_requerida_m2"] > 0
+    assert len(r["componentes"]) >= 6
+    assert len(r["previsiones_electricas"]) >= 6
     print("[OK] sistema solar: paneles, capacidad y autoconsumo coherentes")
+
+
+def test_sistema_solar_crece_con_area_y_configuracion_de_panel():
+    pequena = AnalisisEnergetico.calcular_sistema_solar_recomendado(80, potencia_panel_w=580)
+    grande = AnalisisEnergetico.calcular_sistema_solar_recomendado(240, potencia_panel_w=580)
+    panel_menor = AnalisisEnergetico.calcular_sistema_solar_recomendado(180, potencia_panel_w=450)
+    panel_mayor = AnalisisEnergetico.calcular_sistema_solar_recomendado(180, potencia_panel_w=650)
+
+    assert grande["consumo_objetivo_kwh_mes"] > pequena["consumo_objetivo_kwh_mes"]
+    assert grande["paneles_necesarios"] > pequena["paneles_necesarios"]
+    assert panel_menor["paneles_necesarios"] >= panel_mayor["paneles_necesarios"]
+
+
+def test_sistema_solar_dimensiona_baterias_si_se_solicitan():
+    sin_bateria = AnalisisEnergetico.calcular_sistema_solar_recomendado(120, incluir_baterias=False)
+    con_bateria = AnalisisEnergetico.calcular_sistema_solar_recomendado(
+        120,
+        incluir_baterias=True,
+        dias_autonomia=1.5,
+        capacidad_bateria_kwh=5.12,
+    )
+
+    assert sin_bateria["baterias_necesarias"] == 0
+    assert con_bateria["baterias_necesarias"] > 0
+    assert con_bateria["banco_baterias_kwh"] >= con_bateria["energia_respaldo_requerida_kwh"]
 
 
 def test_tamano_ac_recomendado():

@@ -15,6 +15,7 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.energia import AnalisisEnergetico
+from utils.estado import ProyectoState
 from utils.estilos import inyectar_css, tarjeta_metrica  # noqa: E402
 
 # Configuración de página
@@ -220,7 +221,15 @@ def main():
     with st.sidebar:
         st.markdown("### ⚙️ Configuración")
 
-        area = st.slider("📐 Área de Construcción (m²)", 30, 500, 120, step=10)
+        estado = ProyectoState.cargar()
+        area_default = int(round(estado.area_m2 or 120.0))
+        area = st.slider(
+            "📐 Área de Construcción (m²)",
+            30,
+            500,
+            max(30, min(500, area_default)),
+            step=10,
+        )
 
         sistema_analisis = st.selectbox("🏗️ Sistema a Analizar", ["isotex", "icf"])
 
@@ -233,6 +242,22 @@ def main():
         st.markdown("### 📊 Parámetros")
 
         temp_exterior = st.number_input("🌡️ Temp. Exterior (°C)", value=34.0, min_value=25.0, max_value=45.0)
+
+        st.divider()
+
+        st.markdown("### ☀️ Sistema solar")
+        cobertura_solar = st.slider("Cobertura solar deseada (%)", 50, 100, 90, step=5)
+        potencia_panel_w = st.number_input("Potencia por panel (W)", 350, 700, 580, step=10)
+        incluir_baterias = st.checkbox("Incluir banco de baterías", value=True)
+        dias_autonomia = st.slider("Autonomía de respaldo (días)", 0.5, 3.0, 1.0, step=0.5)
+        costo_por_watt = st.number_input(
+            "Costo FV referencial (RD$/W)",
+            0.0,
+            150.0,
+            45.0,
+            step=5.0,
+            help="Referencia editable. Sustituir por cotización real del proveedor cuando esté disponible.",
+        )
 
         st.divider()
 
@@ -256,7 +281,16 @@ def main():
     tamano_ac = AnalisisEnergetico.calcular_tamano_ac_recomendado(area, sistema_analisis)
     df_proyeccion = AnalisisEnergetico.generar_proyeccion_ahorro(area)
     df_comparativa = AnalisisEnergetico.generar_tabla_comparativa_consumos(area)
-    sistema_solar = AnalisisEnergetico.calcular_sistema_solar_recomendado(area)
+    sistema_solar = AnalisisEnergetico.calcular_sistema_solar_recomendado(
+        area,
+        sistema=sistema_analisis,
+        calidad_equipo=calidad_equipo,
+        cobertura_pct=cobertura_solar,
+        potencia_panel_w=potencia_panel_w,
+        incluir_baterias=incluir_baterias,
+        dias_autonomia=dias_autonomia,
+        costo_por_watt=costo_por_watt,
+    )
 
     # ===== SECCIÓN 1: Resumen de Ahorros =====
     st.markdown('<h2 class="section-header">💚 Resumen de Beneficios Energéticos</h2>', unsafe_allow_html=True)
@@ -407,49 +441,102 @@ def main():
         fig_equipos = grafico_equipo_recomendado(tamano_ac)
         st.plotly_chart(fig_equipos, use_container_width=True)
 
-    # ===== SECCIÓN 7: Sistema Solar (Opcional) =====
-    st.markdown('<h2 class="section-header">☀️ Complemento Solar Fotovoltaico</h2>', unsafe_allow_html=True)
+    # ===== SECCIÓN 7: Sistema Solar =====
+    st.markdown('<h2 class="section-header">☀️ Calculadora Solar Fotovoltaica</h2>', unsafe_allow_html=True)
 
     col_sol1, col_sol2, col_sol3, col_sol4 = st.columns(4)
 
     with col_sol1:
-        st.metric("Paneles Necesarios", f"{sistema_solar['paneles_necesarios']} uds",
-                 f"{sistema_solar['capacidad_sistema_kw']} kW")
+        st.metric(
+            "Paneles necesarios",
+            f"{sistema_solar['paneles_necesarios']} uds",
+            f"{sistema_solar['potencia_panel_w']:.0f} W c/u",
+        )
 
     with col_sol2:
-        st.metric("Generación Mensual", f"{sistema_solar['energia_mensual_kwh']:,.0f} kWh",
-                 f"{sistema_solar['autoconsumo_pct']:.0f}% autoconsumo")
+        st.metric(
+            "Capacidad FV",
+            f"{sistema_solar['capacidad_sistema_kw']:.2f} kWp",
+            f"Inversor {sistema_solar['inversor_kw']:.0f} kW",
+        )
 
     with col_sol3:
-        st.metric("Costo Estimado", format_rd(sistema_solar['costo_estimado_rd']),
-                 f"~{format_rd(sistema_solar['costo_por_panel_rd'])}/panel")
+        st.metric(
+            "Generación mensual",
+            f"{sistema_solar['energia_mensual_kwh']:,.0f} kWh",
+            f"{sistema_solar['autoconsumo_pct']:.0f}% del consumo",
+        )
 
     with col_sol4:
-        st.metric("Ahorro Solar", format_rd(sistema_solar['ahorro_solar_mensual_rd']) + "/mes",
-                 "Estimado")
+        if sistema_solar["baterias_necesarias"] > 0:
+            st.metric(
+                "Baterías",
+                f"{sistema_solar['baterias_necesarias']} uds",
+                f"{sistema_solar['banco_baterias_kwh']:.1f} kWh nominal",
+            )
+        else:
+            st.metric("Baterías", "0 uds", "Sistema sin respaldo")
 
-    st.info("💡 El sistema solar fotovoltaico puede compensar parte del consumo eléctrico剩余. "
-           "Consulte con un proveedor local para una cotización exacta.")
+    col_demanda, col_componentes = st.columns([1, 1.35])
+
+    with col_demanda:
+        st.markdown("#### Demanda estimada")
+        st.metric("Consumo AC", f"{sistema_solar['consumo_ac_kwh_mes']:,.0f} kWh/mes")
+        st.metric("Consumo base vivienda", f"{sistema_solar['consumo_base_kwh_mes']:,.0f} kWh/mes")
+        st.metric("Consumo total", f"{sistema_solar['consumo_total_kwh_mes']:,.0f} kWh/mes")
+        st.metric("Objetivo solar", f"{sistema_solar['consumo_objetivo_kwh_mes']:,.0f} kWh/mes")
+        st.metric("Ahorro solar tentativo", format_rd(sistema_solar['ahorro_solar_mensual_rd']) + "/mes")
+
+        if sistema_solar["area_techo_suficiente"]:
+            st.success(
+                f"Área de techo requerida: {sistema_solar['area_techo_requerida_m2']:.1f} m². "
+                "La estimación cabe dentro del techo disponible."
+            )
+        else:
+            st.warning(
+                f"Área de techo requerida: {sistema_solar['area_techo_requerida_m2']:.1f} m². "
+                f"Área disponible estimada: {sistema_solar['area_techo_disponible_m2']:.1f} m². "
+                "Conviene revisar orientación, sombras o una instalación parcial."
+            )
+
+    with col_componentes:
+        st.markdown("#### Componentes del sistema")
+        df_componentes = pd.DataFrame(sistema_solar["componentes"])
+        st.dataframe(df_componentes, use_container_width=True, hide_index=True)
+
+        st.markdown("#### Previsiones eléctricas para el diseño")
+        for item in sistema_solar["previsiones_electricas"]:
+            st.markdown(f"- {item}")
+
+    st.info(
+        "Este módulo dimensiona un sistema fotovoltaico preliminar según el área y el consumo estimado. "
+        "Los calibres de conductor, protecciones finales, interconexión y permisos deben cerrarse con "
+        "un ingeniero eléctrico y una cotización local."
+    )
 
     # ===== SECCIÓN 8: Beneficios Ambientales =====
     st.markdown('<h2 class="section-header">🌍 Impacto Ambiental</h2>', unsafe_allow_html=True)
 
     col_eco1, col_eco2, col_eco3 = st.columns(3)
+    co2_total_mitigado = analisis.co2_evitado_kg_anio + sistema_solar["co2_evitable_solar_kg_anio"]
 
     with col_eco1:
-        # Árboles equivalentes
-        arboles_equivalentes = analisis.co2_evitado_kg_anio / 21  # ~21 kg CO2/árbol/año
+        # Equivalencia orientativa: un árbol adulto captura ~21 kg CO2/año.
+        arboles_equivalentes = co2_total_mitigado / 21
         st.metric("🌳 Árboles Equivalentes", f"{arboles_equivalentes:.0f}",
                  "Por año de operación")
 
     with col_eco2:
-        km_auto_equivalente = analisis.co2_evitado_kg_anio / 0.192  # ~192 g/km
+        km_auto_equivalente = co2_total_mitigado / 0.192  # ~192 g/km
         st.metric("🚗 km de Auto Equivalentes", f"{km_auto_equivalente:,.0f}",
                  "Por año de operación")
 
     with col_eco3:
-        st.metric("♻️ Reducción vs Tradicional", f"{55}%",
-                 "En huella de carbono")
+        st.metric(
+            "♻️ CO₂ mitigado total",
+            f"{co2_total_mitigado:,.0f} kg/año",
+            f"{sistema_solar['cobertura_objetivo_pct']:.0f}% cobertura solar objetivo",
+        )
 
     # ===== FOOTER =====
     st.divider()

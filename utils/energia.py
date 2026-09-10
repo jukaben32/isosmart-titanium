@@ -323,47 +323,152 @@ class AnalisisEnergetico:
         return pd.DataFrame(datos)
 
     @classmethod
-    def calcular_sistema_solar_recomendado(cls, area_m2: float) -> dict:
+    def calcular_sistema_solar_recomendado(
+        cls,
+        area_m2: float,
+        sistema: str = "isotex",
+        calidad_equipo: str = "inverter",
+        cobertura_pct: float = 90.0,
+        potencia_panel_w: float = 580.0,
+        largo_panel_m: float = 2.28,
+        ancho_panel_m: float = 1.13,
+        horas_pico_sol: float = 5.5,
+        perdidas_sistema_pct: float = 18.0,
+        consumo_base_fijo_kwh_mes: float = 120.0,
+        consumo_base_kwh_m2_mes: float = 1.2,
+        incluir_baterias: bool = True,
+        dias_autonomia: float = 1.0,
+        capacidad_bateria_kwh: float = 5.12,
+        profundidad_descarga_pct: float = 80.0,
+        costo_por_watt: float = 45.0,
+        costo_bateria_rd: float = 0.0,
+    ) -> dict:
         """
-        Calcula recomendación de sistema solar para complementar el ahorro
+        Calcula recomendación de sistema solar residencial.
 
         Args:
             area_m2: Área de construcción
+            sistema: Sistema constructivo usado para estimar el consumo de AC
+            calidad_equipo: Eficiencia esperada del aire acondicionado
+            cobertura_pct: Porcentaje del consumo mensual que cubrirá el solar
+            potencia_panel_w: Potencia nominal de cada panel fotovoltaico
+            largo_panel_m/ancho_panel_m: Dimensiones físicas del panel
+            horas_pico_sol: Horas sol pico diarias de referencia
+            perdidas_sistema_pct: Pérdidas por temperatura, inversor, cableado y suciedad
+            consumo_base_*: Consumos de nevera, iluminación, bombas, equipos y enchufes
+            incluir_baterias: Si dimensiona respaldo con baterías
+            dias_autonomia: Días de respaldo deseados
+            capacidad_bateria_kwh: Capacidad nominal por módulo de batería
+            profundidad_descarga_pct: Porcentaje útil de la batería
+            costo_por_watt: Referencia editable de sistema FV instalado
+            costo_bateria_rd: Referencia opcional por batería, 0 si no hay precio verificado
 
         Returns:
             Diccionario con specs del sistema solar recomendado
         """
-        analisis = cls.calcular_ahorro_energetico(area_m2)
+        if area_m2 <= 0:
+            raise ValueError("area_m2 debe ser positiva")
+        if potencia_panel_w <= 0:
+            raise ValueError("potencia_panel_w debe ser positiva")
+        if not 1 <= cobertura_pct <= 100:
+            raise ValueError("cobertura_pct debe estar entre 1 y 100")
 
-        # Consumo mensual del sistema ISOTEX
-        consumo_mensual = analisis.consumo_mensual_kwh
+        analisis = cls.calcular_ahorro_energetico(area_m2, sistema=sistema, calidad_equipo=calidad_equipo)
 
-        # Paneles típicos (400W por panel)
-        potencia_panel_w = 400
-        horas_pico_sol = 5.5  # Horas de sol pico en República Dominicana
+        # Consumo total estimado: aire acondicionado + cargas normales de la casa.
+        consumo_base = consumo_base_fijo_kwh_mes + area_m2 * consumo_base_kwh_m2_mes
+        consumo_mensual = analisis.consumo_mensual_kwh + consumo_base
+        consumo_objetivo = consumo_mensual * cobertura_pct / 100.0
 
-        # Energía generada por panel por día
-        energia_panel_dia_wh = potencia_panel_w * horas_pico_sol
-        energia_panel_mes_kwh = (energia_panel_dia_wh / 1000) * 30
-
-        # Número de paneles necesarios
-        num_paneles = int(np.ceil(consumo_mensual / energia_panel_mes_kwh)) + 2
-
-        # Capacidad total del sistema
+        factor_perdidas = max(0.50, 1 - perdidas_sistema_pct / 100.0)
+        energia_panel_mes_kwh = (potencia_panel_w / 1000) * horas_pico_sol * 30 * factor_perdidas
+        num_paneles = max(1, int(np.ceil(consumo_objetivo / energia_panel_mes_kwh)))
         capacidad_kw = (num_paneles * potencia_panel_w) / 1000
+        energia_mensual = num_paneles * energia_panel_mes_kwh
 
-        # Costo estimado (RD$ por W instalado - sistema completo)
-        costo_por_watt = 45.0  # RD$/W instalado (2024)
-        costo_total = capacidad_kw * 1000 * costo_por_watt
+        # El inversor se escoge desde tamaños comerciales comunes.
+        potencia_ac_estimada_kw = capacidad_kw * 0.85
+        tamanos_inversor_kw = [3, 5, 6, 8, 10, 12, 15, 20]
+        inversor_kw = next((kw for kw in tamanos_inversor_kw if kw >= potencia_ac_estimada_kw), tamanos_inversor_kw[-1])
+
+        area_panel_m2 = largo_panel_m * ancho_panel_m
+        area_techo_requerida = num_paneles * area_panel_m2 * 1.25  # 25% para separación, pasillos y sombras
+        area_techo_disponible = area_m2 * 0.70  # estimación conservadora sin plano de techo
+        strings = max(1, int(np.ceil(num_paneles / 8)))
+        paneles_por_string = int(np.ceil(num_paneles / strings))
+
+        consumo_diario = consumo_mensual / 30
+        energia_respaldo = consumo_diario * dias_autonomia if incluir_baterias else 0.0
+        capacidad_util_bateria = capacidad_bateria_kwh * profundidad_descarga_pct / 100.0
+        baterias = int(np.ceil(energia_respaldo / capacidad_util_bateria)) if energia_respaldo > 0 else 0
+        banco_baterias_kwh = baterias * capacidad_bateria_kwh
+
+        costo_total = capacidad_kw * 1000 * costo_por_watt + baterias * costo_bateria_rd
+        energia_aprovechable = min(consumo_mensual, energia_mensual)
+        ahorro_solar_mensual_rd = calcular_costo_energia_rd(energia_aprovechable)
+
+        componentes = [
+            {"componente": "Panel fotovoltaico", "unidad": "ud", "cantidad": num_paneles,
+             "detalle": f"{potencia_panel_w:.0f} W, {largo_panel_m:.2f} x {ancho_panel_m:.2f} m"},
+            {"componente": "Inversor híbrido / grid-tie", "unidad": "ud", "cantidad": 1,
+             "detalle": f"{inversor_kw:.0f} kW AC recomendado"},
+            {"componente": "String fotovoltaico", "unidad": "circuito", "cantidad": strings,
+             "detalle": f"Hasta {paneles_por_string} paneles por string"},
+            {"componente": "Estructura de techo", "unidad": "m²", "cantidad": round(area_techo_requerida, 2),
+             "detalle": "Rieles, grapas, pasillos técnicos y separación"},
+            {"componente": "Cable solar DC", "unidad": "ml", "cantidad": round(max(30, strings * 35), 2),
+             "detalle": "Circuitos positivo/negativo desde strings al inversor"},
+            {"componente": "Tablero solar AC/DC", "unidad": "ud", "cantidad": 1,
+             "detalle": "Protecciones, seccionadores, SPD y breakers"},
+            {"componente": "Puesta a tierra solar", "unidad": "sistema", "cantidad": 1,
+             "detalle": "Barra, conductor, bonding de marcos y protección"},
+        ]
+        if incluir_baterias:
+            componentes.append(
+                {"componente": "Batería LiFePO4", "unidad": "ud", "cantidad": baterias,
+                 "detalle": f"{capacidad_bateria_kwh:.2f} kWh nominal por módulo"}
+            )
+
+        previsiones_electricas = [
+            "Reserva de área técnica ventilada para inversor, baterías y tablero solar.",
+            "Canalización DC independiente desde techo hasta cuarto eléctrico.",
+            "Canalización AC desde inversor hasta tablero principal/interconexión.",
+            "Breaker dedicado para sistema fotovoltaico en tablero principal.",
+            "Protección contra sobretensiones DC y AC.",
+            "Seccionador visible y rotulado para mantenimiento del sistema solar.",
+            "Puesta a tierra equipotencial para paneles, inversor y estructura metálica.",
+            "Tablero de cargas críticas si se usarán baterías para respaldo nocturno.",
+        ]
 
         return {
             'paneles_necesarios': num_paneles,
+            'potencia_panel_w': round(potencia_panel_w, 0),
+            'dimension_panel_m': f"{largo_panel_m:.2f} x {ancho_panel_m:.2f}",
             'capacidad_sistema_kw': round(capacidad_kw, 2),
-            'energia_mensual_kwh': round(num_paneles * energia_panel_mes_kwh, 2),
-            'autoconsumo_pct': min(100, (num_paneles * energia_panel_mes_kwh / consumo_mensual) * 100),
+            'inversor_kw': round(float(inversor_kw), 2),
+            'energia_mensual_kwh': round(energia_mensual, 2),
+            'consumo_ac_kwh_mes': round(analisis.consumo_mensual_kwh, 2),
+            'consumo_base_kwh_mes': round(consumo_base, 2),
+            'consumo_total_kwh_mes': round(consumo_mensual, 2),
+            'consumo_objetivo_kwh_mes': round(consumo_objetivo, 2),
+            'cobertura_objetivo_pct': round(cobertura_pct, 1),
+            'autoconsumo_pct': round(min(100, (energia_mensual / consumo_mensual) * 100), 1),
+            'area_techo_requerida_m2': round(area_techo_requerida, 2),
+            'area_techo_disponible_m2': round(area_techo_disponible, 2),
+            'area_techo_suficiente': area_techo_requerida <= area_techo_disponible,
+            'strings_fv': strings,
+            'paneles_por_string': paneles_por_string,
+            'baterias_necesarias': baterias,
+            'capacidad_bateria_kwh': round(capacidad_bateria_kwh, 2),
+            'banco_baterias_kwh': round(banco_baterias_kwh, 2),
+            'energia_respaldo_requerida_kwh': round(energia_respaldo, 2),
+            'dias_autonomia': round(dias_autonomia, 2) if incluir_baterias else 0,
             'costo_estimado_rd': round(costo_total, 2),
             'costo_por_panel_rd': round(costo_total / num_paneles, 2),
-            'ahorro_solar_mensual_rd': round(calcular_costo_energia_rd(min(consumo_mensual, num_paneles * energia_panel_mes_kwh)), 2)
+            'ahorro_solar_mensual_rd': round(ahorro_solar_mensual_rd, 2),
+            'co2_evitable_solar_kg_anio': round(energia_aprovechable * 12 * cls.KG_CO2_POR_KWH, 2),
+            'componentes': componentes,
+            'previsiones_electricas': previsiones_electricas,
         }
 
     @classmethod
