@@ -10,6 +10,8 @@ import streamlit as st
 
 from utils.ai_media import generate_facade_image_fal, generate_video_luma
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
+from utils.cad_jobs import crear_cad_job, listar_cad_jobs
+from utils.energia import AnalisisEnergetico
 from utils.estado import ProyectoState
 from utils.floor_plan import generar_esquema_svg
 from utils.pricebook import DEFAULT_PRICEBOOK
@@ -277,6 +279,41 @@ def render_text_design_assistant(context_key: str):
         st.markdown("#### 🗺️ Esquema de distribución")
         svg = generar_esquema_svg(params["habitaciones"], area_total_m2=geo.area_m2)
         st.markdown(svg, unsafe_allow_html=True)
+
+    st.markdown("#### Activación CAD / Open CAD Studio")
+    incluir_solar_cad = st.checkbox(
+        "Incluir sistema solar e instalaciones ecológicas",
+        value=True,
+        key=f"cad_solar_{context_key}",
+    )
+    col_cad_1, col_cad_2 = st.columns([1, 1])
+    with col_cad_1:
+        if st.button("Crear solicitud CAD/OCS", key=f"cad_job_btn_{context_key}",
+                     use_container_width=True):
+            solar = (
+                AnalisisEnergetico.calcular_sistema_solar_recomendado(geo.area_m2)
+                if incluir_solar_cad else None
+            )
+            job = crear_cad_job(
+                st.session_state.get("descripcion_lead", "") or "Proyecto residencial sin descripción guardada",
+                estado,
+                solar=solar,
+            )
+            st.session_state["ultimo_cad_job_id"] = job["id"]
+            st.success(f"Solicitud CAD creada: {job['id']}")
+    with col_cad_2:
+        ultimo = st.session_state.get("ultimo_cad_job_id")
+        if ultimo:
+            st.info(f"Último job CAD: `{ultimo}`")
+
+    jobs = listar_cad_jobs(limite=5)
+    if jobs:
+        st.dataframe(
+            [{"ID": j["id"], "Estado": j["status"], "Creado": j["created_at"]}
+             for j in jobs],
+            use_container_width=True,
+            hide_index=True,
+        )
 
     # -- fachada/video: opcional, claramente aparte del presupuesto -------
     with st.expander("🎨 Ver una impresión artística de la fachada (opcional)", expanded=False):

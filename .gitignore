@@ -30,4 +30,5 @@ hermes-verify-*.py
 data/leads_db.json
 data/projects_db.json
 data/*_db.json
+data/cad_jobs/
 *.sqlite3

@@ -200,7 +200,11 @@ class ProyectoState:
         estado["calc_altura_muro_m"] = self.altura_muro_m
         estado["calc_espesor_muro_m"] = self.espesor_muro_m
         estado["calc_niveles"] = self.niveles
-        estado["calidad_terminados"] = self.calidad
+        # Si un widget de Streamlit ya usa esta key, reasignarla después de
+        # instanciarlo lanza StreamlitWidgetAlreadyInstantiatedError. Se
+        # conserva el alias solo cuando todavía no existe.
+        if "calidad_terminados" not in estado:
+            estado["calidad_terminados"] = self.calidad
         return self
 
     @staticmethod
