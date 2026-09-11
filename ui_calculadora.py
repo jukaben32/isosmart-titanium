@@ -23,6 +23,7 @@ from ui_core import (
     st_canvas,
 )
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS
+from utils.dxf_importer import analizar_dxf_bytes
 from utils.estado import ProyectoState
 
 # Helpers compartidos desde ui_core
@@ -44,6 +45,32 @@ from utils.pricebook import Pricebook
 from utils.qto import CATEGORIAS_OBRA_GRIS, MotorQTO
 
 
+def _mostrar_mediciones_dxf(archivo_dxf, origen: str) -> bool:
+    """Lee un DXF subido y permite guardar sus mediciones en el proyecto."""
+    try:
+        mediciones = analizar_dxf_bytes(archivo_dxf.getvalue())
+    except Exception as e:
+        st.error(f"No pude leer este DXF: {e}")
+        return False
+
+    st.success(
+        f"DXF detectado: {mediciones.area_m2:,.2f} m², "
+        f"{mediciones.perimetro_m:,.2f} ml, "
+        f"{mediciones.ventanas} ventanas, "
+        f"{mediciones.puertas_interiores + mediciones.puertas_exteriores} puertas."
+    )
+    for advertencia in mediciones.advertencias:
+        st.warning(advertencia)
+
+    if st.button("Usar mediciones del DXF", key=f"usar_dxf_{origen}", use_container_width=True):
+        estado_dxf = ProyectoState.cargar()
+        estado_dxf.aplicar_metricas(mediciones.a_metricas(), origen=f"DXF: {archivo_dxf.name}")
+        estado_dxf.guardar()
+        st.rerun()
+
+    return True
+
+
 def render_modulo_vision_y_canvas(modelo_gemini):
     """
     Pestaña interactiva de análisis de planos y dibujo geométrico.
@@ -55,18 +82,22 @@ def render_modulo_vision_y_canvas(modelo_gemini):
     with col_izq:
         st.markdown("### 🛠️ Cargar Documento")
         archivo_plano = st.file_uploader(
-            "Sube el plano del proyecto (PDF o Imagen)", 
-            type=["png", "jpg", "jpeg", "pdf"],
+            "Sube el plano del proyecto (DXF, PDF o Imagen)",
+            type=["dxf", "png", "jpg", "jpeg", "pdf"],
             key="uploader_planos"
         )
         
         imagen_pil = None
         if archivo_plano:
-            bytes_data = archivo_plano.read()
-            if archivo_plano.name.lower().endswith(".pdf"):
+            nombre_archivo = archivo_plano.name.lower()
+            if nombre_archivo.endswith(".dxf"):
+                _mostrar_mediciones_dxf(archivo_plano, "vision")
+            elif nombre_archivo.endswith(".pdf"):
+                bytes_data = archivo_plano.getvalue()
                 with st.spinner("📄 Convirtiendo primera página del PDF a imagen..."):
                     imagen_pil = pdf_first_page_to_image(bytes_data, dpi=150)
             else:
+                bytes_data = archivo_plano.getvalue()
                 imagen_pil = Image.open(BytesIO(bytes_data)).convert("RGB")
         
         # Botón para activar análisis de Gemini 1.5
@@ -88,7 +119,12 @@ def render_modulo_vision_y_canvas(modelo_gemini):
     with col_der:
         st.markdown("### ✏️ Calibración de Escala y Trazado de Polígonos")
         
-        if imagen_pil:
+        if archivo_plano and archivo_plano.name.lower().endswith(".dxf"):
+            st.info(
+                "El DXF se procesa directamente desde sus capas CAD. "
+                "Para usar el canvas de medición, sube un PDF o una imagen."
+            )
+        elif imagen_pil:
             if st_canvas is None:
                 st.error("El componente `streamlit-drawable-canvas` no está instalado.")
                 return
@@ -722,16 +758,20 @@ def pagina_plano_estructura():
             except Exception as e:
                 st.warning(f"No pude inicializar el modelo con visión: {e}")
 
-    upload = st.file_uploader("Sube plano (PNG/JPG/PDF).", type=["png", "jpg", "jpeg", "pdf"])
+    upload = st.file_uploader("Sube plano (DXF/PNG/JPG/PDF).", type=["dxf", "png", "jpg", "jpeg", "pdf"])
 
     img = None
-    if upload is not None and upload.type == "application/pdf":
-        pdf_bytes = upload.getvalue()
-        img = pdf_first_page_to_image(pdf_bytes, dpi=150)
-        if img is None:
-            st.error("No pude convertir el PDF a imagen. Verifica que `PyMuPDF` esté instalado y que el PDF no esté corrupto.")
-    elif upload is not None:
-        img = Image.open(upload).convert("RGB")
+    if upload is not None:
+        nombre_upload = upload.name.lower()
+        if nombre_upload.endswith(".dxf"):
+            _mostrar_mediciones_dxf(upload, "plano")
+        elif nombre_upload.endswith(".pdf"):
+            pdf_bytes = upload.getvalue()
+            img = pdf_first_page_to_image(pdf_bytes, dpi=150)
+            if img is None:
+                st.error("No pude convertir el PDF a imagen. Verifica que `PyMuPDF` esté instalado y que el PDF no esté corrupto.")
+        else:
+            img = Image.open(upload).convert("RGB")
 
     if img is not None:
         st.image(img, caption="Plano cargado", use_container_width=True)
