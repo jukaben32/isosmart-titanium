@@ -12,7 +12,7 @@ from utils.ai_media import generate_facade_image_fal, generate_video_luma
 from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS, analyze_text_design_with_gemini
 from utils.cad_jobs import crear_cad_job, listar_cad_jobs
 from utils.energia import AnalisisEnergetico
-from utils.estado import ProyectoState
+from utils.estado import ProyectoState, limitar_area_ui
 from utils.floor_plan import generar_esquema_svg
 from utils.pricebook import DEFAULT_PRICEBOOK
 from utils.qto import MotorQTO
@@ -165,10 +165,66 @@ def get_luma_key_from_config() -> str:
     return os.getenv("LUMA_API_KEY", "") or ""
 
 
+def _parametros_text_design_desde_estado() -> dict[str, Any]:
+    """Construye los defaults del asistente usando el estado vivo del proyecto."""
+    params = dict(DEFAULT_TEXT_DESIGN_PARAMS)
+    try:
+        estado = ProyectoState.cargar()
+    except Exception:
+        return params
+
+    params["area_m2"] = estado.area_m2
+    params["niveles"] = estado.niveles
+    params["altura_muro_m"] = estado.altura_muro_m
+    params["espesor_muro_m"] = estado.espesor_muro_m
+    params["calidad_terminados"] = estado.calidad
+    if estado.perimetro_m is not None:
+        params["perimetro_m"] = estado.perimetro_m
+    if estado.habitaciones:
+        params["habitaciones"] = estado.habitaciones
+    return params
+
+
+def _sincronizar_controles_area(area_m2: float) -> None:
+    """
+    Mantiene alineadas las barras de área entre páginas.
+
+    Streamlit no permite modificar una key de widget después de crear ese
+    widget en la misma corrida. Por eso protegemos cada asignación: cuando el
+    control ya existe, el estado del proyecto sigue correcto y el widget se
+    pondrá al día en el siguiente rerun.
+    """
+    area = limitar_area_ui(area_m2)
+    valores = {
+        "calc_area_slider_m2": float(area),
+        "inicio_area_m2": int(round(area)),
+    }
+    for key, value in valores.items():
+        try:
+            st.session_state[key] = value
+        except Exception:
+            pass
+    st.session_state["_calc_area_estado_base_m2"] = area
+    st.session_state["_inicio_area_m2_previa"] = area
+
+
 def init_text_design_state():
     """Inicializa valores seguros para el asistente Text-to-Design."""
+    params_base = _parametros_text_design_desde_estado()
     if "text_design_params" not in st.session_state:
-        st.session_state["text_design_params"] = dict(DEFAULT_TEXT_DESIGN_PARAMS)
+        st.session_state["text_design_params"] = params_base
+    else:
+        params_actuales = dict(st.session_state["text_design_params"] or {})
+        params_actuales.update({
+            "area_m2": params_base["area_m2"],
+            "niveles": params_base["niveles"],
+            "altura_muro_m": params_base["altura_muro_m"],
+            "espesor_muro_m": params_base["espesor_muro_m"],
+            "calidad_terminados": params_base["calidad_terminados"],
+        })
+        if params_base.get("perimetro_m"):
+            params_actuales["perimetro_m"] = params_base["perimetro_m"]
+        st.session_state["text_design_params"] = params_actuales
     if "text_design_raw" not in st.session_state:
         st.session_state["text_design_raw"] = ""
     if "url_imagen" not in st.session_state:
@@ -462,6 +518,8 @@ def sincronizar_parametros_globales(datos: dict, origen: str):
 
     estado = ProyectoState.cargar().aplicar_metricas(datos, origen=origen)
     estado.guardar()
+    if datos.get("area_m2"):
+        _sincronizar_controles_area(estado.area_m2)
 
     st.success(f"🔄 Parámetros actualizados desde: **{origen}**")
 

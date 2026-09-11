@@ -53,6 +53,10 @@ RANGOS = {
     "niveles": (1, 20),
 }
 
+AREA_UI_MIN_M2 = 10
+AREA_UI_MAX_M2 = 10_000
+AREA_UI_STEP_M2 = 10
+
 # Claves antiguas que se siguen leyendo por compatibilidad (solo lectura).
 _ALIAS_LECTURA = {
     "area_m2": ("calc_area_m2", "plan_area_m2"),
@@ -67,6 +71,15 @@ CLAVE_ESTADO = "proyecto_state"
 
 def _clamp(valor: float, minimo: float, maximo: float) -> float:
     return max(minimo, min(maximo, valor))
+
+
+def limitar_area_ui(area_m2: Any) -> float:
+    """Ajusta un área al rango que comparten los sliders de la interfaz."""
+    try:
+        area = float(area_m2)
+    except (TypeError, ValueError):
+        area = 120.0
+    return _clamp(area, AREA_UI_MIN_M2, AREA_UI_MAX_M2)
 
 
 @dataclass

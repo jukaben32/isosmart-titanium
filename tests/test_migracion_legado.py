@@ -214,3 +214,21 @@ def test_visor_bim_lee_proyecto_state_no_plan_params_muerto():
     codigo = _sin_docstring_ni_comentarios("ui_visor_bim.py")
     assert 'session_state.get("plan_params"' not in codigo
     assert "ProyectoState" in codigo
+
+
+def test_calculadora_usa_rango_unico_para_area_dinamica():
+    """
+    La página de Calculadora debe seguir el área viva del proyecto.
+
+    Evita que reaparezcan widgets con límites/defaults propios, como Inicio a
+    500 m² y Calculadora a otro rango, o defaults visuales de 120 m² que no
+    reflejan el estado real.
+    """
+    codigo = Path("ui_calculadora.py").read_text(encoding="utf-8")
+
+    assert "AREA_UI_MIN_M2" in codigo
+    assert "AREA_UI_MAX_M2" in codigo
+    assert "AREA_UI_STEP_M2" in codigo
+    assert "limitar_area_ui" in codigo
+    assert "value=120" not in codigo
+    assert "120.0" not in codigo

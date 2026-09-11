@@ -22,9 +22,8 @@ from ui_core import (
     sincronizar_parametros_globales,
     st_canvas,
 )
-from utils.ai_text_design import DEFAULT_TEXT_DESIGN_PARAMS
 from utils.dxf_importer import analizar_dxf_bytes
-from utils.estado import ProyectoState
+from utils.estado import AREA_UI_MAX_M2, AREA_UI_MIN_M2, AREA_UI_STEP_M2, ProyectoState, limitar_area_ui
 
 # Helpers compartidos desde ui_core
 from utils.estilos import boton_enlace  # noqa: E402
@@ -223,13 +222,10 @@ def pagina_calculadora():
     # Barra lateral de configuración
     with st.sidebar:
         st.markdown("### 📋 Datos del Proyecto")
-        render_text_design_assistant("calculadora")
-        text_design_params = st.session_state.get("text_design_params", DEFAULT_TEXT_DESIGN_PARAMS)
 
         cliente = st.text_input("👤 Nombre del Cliente", "Proyecto Residencial")
         
-        area_default = float(estado_calculo.area_m2 or text_design_params.get("area_m2", 120.0))
-        area_default = max(20.0, min(5000.0, area_default))
+        area_default = limitar_area_ui(estado_calculo.area_m2)
         area_key = "calc_area_slider_m2"
         area_base_key = "_calc_area_estado_base_m2"
         area_llego_de_otra_pagina = (
@@ -240,19 +236,36 @@ def pagina_calculadora():
             st.session_state[area_key] = area_default
             st.session_state[area_base_key] = area_default
         else:
-            st.session_state[area_key] = max(20.0, min(5000.0, float(st.session_state[area_key])))
+            st.session_state[area_key] = limitar_area_ui(st.session_state[area_key])
 
         m2_in = st.slider(
             "📐 Área de construcción (m²)",
-            min_value=20.0,
-            max_value=5000.0,
-            step=10.0,
+            min_value=float(AREA_UI_MIN_M2),
+            max_value=float(AREA_UI_MAX_M2),
+            step=float(AREA_UI_STEP_M2),
             key=area_key,
             help=(
                 "Esta barra alimenta el resumen, las tablas de materiales, "
                 "la comparativa, el PDF y las demás páginas del proyecto."
             ),
         )
+        area_cambio_manual = abs(float(m2_in) - float(estado_calculo.area_m2)) > 0.001
+        if area_cambio_manual:
+            estado_calculo.area_m2 = float(m2_in)
+            # Al cambiar el área manualmente, el perímetro de un DXF o canvas
+            # anterior ya no representa esta opción tentativa.
+            estado_calculo.perimetro_m = None
+            estado_calculo.origen_metricas = "Calculadora - area tentativa"
+            estado_calculo.guardar()
+            st.session_state["inicio_area_m2"] = int(round(float(m2_in)))
+            st.session_state["_inicio_area_m2_previa"] = float(m2_in)
+            st.session_state["_calc_area_estado_base_m2"] = float(m2_in)
+
+        render_text_design_assistant("calculadora")
+        # Si el asistente de texto, DXF o canvas actualizó el estado en esta
+        # misma corrida, el cálculo que sigue usa ese valor nuevo.
+        estado_calculo = ProyectoState.cargar()
+        m2_in = limitar_area_ui(estado_calculo.area_m2)
         # Antes: `st.session_state["calc_area_m2"] = m2_in` aquí mismo --
         # redundante con `estado_proyecto.guardar()` unas líneas más abajo
         # en esta misma función, que ya sincroniza esta clave a través de
@@ -657,6 +670,8 @@ def pagina_contacto():
     """, unsafe_allow_html=True)
 
     project_manager = ProjectManager()
+    estado_contacto = ProyectoState.cargar()
+    area_contacto = int(round(limitar_area_ui(estado_contacto.area_m2)))
 
     col_form1, col_form2 = st.columns([2, 1])
 
@@ -677,7 +692,13 @@ def pagina_contacto():
                 ["Vivienda Unifamiliar", "Apartamento", "Local Comercial",
                  "Edificio", "Remodelación", "Otro"]
             )
-            area_estimada = st.number_input("Área Estimada (m²)", min_value=0, max_value=10000, step=10)
+            area_estimada = st.number_input(
+                "Área Estimada (m²)",
+                min_value=0,
+                max_value=AREA_UI_MAX_M2,
+                value=area_contacto,
+                step=AREA_UI_STEP_M2,
+            )
             mensaje = st.text_area("Mensaje o Detalles Adicionales")
 
             submit = st.form_submit_button("🚀 Enviar Solicitud", use_container_width=True)

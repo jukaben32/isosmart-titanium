@@ -10,7 +10,13 @@ import pytest
 
 sys.path.insert(0, ".")
 
-from utils.estado import CLAVE_ESTADO, ProyectoState  # noqa: E402
+from utils.estado import (  # noqa: E402
+    AREA_UI_MAX_M2,
+    AREA_UI_MIN_M2,
+    CLAVE_ESTADO,
+    ProyectoState,
+    limitar_area_ui,
+)
 
 # ===========================================================================
 # Estado unificado
@@ -44,6 +50,12 @@ def test_guardar_y_recargar_es_idempotente():
     assert recargado.perimetro_m == 60
     assert recargado.niveles == 2
     assert CLAVE_ESTADO in estado
+
+
+def test_rango_de_area_ui_es_compartido_por_las_paginas():
+    assert limitar_area_ui(5) == AREA_UI_MIN_M2
+    assert limitar_area_ui(250) == 250
+    assert limitar_area_ui(50_000) == AREA_UI_MAX_M2
 
 
 def test_mantiene_el_espejo_de_compatibilidad():

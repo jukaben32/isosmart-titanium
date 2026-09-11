@@ -28,7 +28,7 @@ import os
 import streamlit as st
 
 from utils.comparativa_inicio import calcular_comparativa_area
-from utils.estado import ProyectoState
+from utils.estado import AREA_UI_MAX_M2, AREA_UI_MIN_M2, AREA_UI_STEP_M2, ProyectoState, limitar_area_ui
 from utils.estilos import caja_info, encabezado, inyectar_css, tarjeta_metrica
 from utils.fuentes import (
     COSTO_TRADICIONAL_RD_M2,
@@ -62,14 +62,16 @@ def pagina_inicio():
     # -- comparativa real, calculada con el motor QTO -----------------------
     estado = ProyectoState.cargar()
     precios = Pricebook(os.path.join("data", "pricebook.json")).load()
-    area_base = int(round(estado.area_m2 or 120.0))
+    area_base = int(round(limitar_area_ui(estado.area_m2)))
+    if "inicio_area_m2" in st.session_state:
+        st.session_state["inicio_area_m2"] = int(round(limitar_area_ui(st.session_state["inicio_area_m2"])))
 
     area_inicio = st.slider(
         "Área de construcción (m²)",
-        min_value=40,
-        max_value=500,
-        value=max(40, min(500, area_base)),
-        step=10,
+        min_value=AREA_UI_MIN_M2,
+        max_value=AREA_UI_MAX_M2,
+        value=area_base,
+        step=AREA_UI_STEP_M2,
         key="inicio_area_m2",
     )
     area_previa = st.session_state.get("_inicio_area_m2_previa")
