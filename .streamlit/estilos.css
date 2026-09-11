@@ -24,6 +24,23 @@
     --iso-radio: 15px;
 }
 
+/* --- limpieza de la barra propia de Streamlit ---------------------------- */
+#MainMenu,
+footer,
+header,
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],
+[data-testid="manage-app-button"],
+.stDeployButton {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+.block-container {
+    padding-top: 2rem;
+}
+
 /* --- tarjetas de métrica ------------------------------------------------- */
 .metric-card,
 .energy-card {
