@@ -16,6 +16,7 @@ from typing import Any
 from uuid import uuid4
 
 from .estado import ProyectoState
+from .repositorio import leer_config_supabase
 from .storage import read_json, write_json_atomic
 
 DEFAULT_CAD_QUEUE_DIR = Path("data") / "cad_jobs"
@@ -60,6 +61,90 @@ def _ahora_iso() -> str:
 
 def _ruta_job(job_id: str, cola_dir: str | Path = DEFAULT_CAD_QUEUE_DIR) -> Path:
     return Path(cola_dir) / f"{job_id}.json"
+
+
+def _usar_supabase(cola_dir: str | Path) -> bool:
+    """Usa Supabase solo para la cola por defecto; tests pueden pasar tmp_path."""
+    return Path(cola_dir) == DEFAULT_CAD_QUEUE_DIR and leer_config_supabase() is not None
+
+
+def _headers_supabase(config: dict[str, str]) -> dict[str, str]:
+    key = config.get("service_role_key") or config.get("anon_key") or ""
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+
+
+def _crear_cad_job_supabase(job: dict[str, Any]) -> dict[str, Any]:
+    import requests
+
+    config = leer_config_supabase()
+    if not config:
+        raise RuntimeError("Supabase no está configurado")
+    resp = requests.post(
+        f"{config['url'].rstrip('/')}/rest/v1/cad_jobs",
+        headers=_headers_supabase(config),
+        json=job,
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return job
+
+
+def _obtener_cad_job_supabase(job_id: str) -> dict[str, Any] | None:
+    import requests
+
+    config = leer_config_supabase()
+    if not config:
+        return None
+    resp = requests.get(
+        f"{config['url'].rstrip('/')}/rest/v1/cad_jobs",
+        headers=_headers_supabase(config),
+        params={"select": "*", "id": f"eq.{job_id}", "limit": "1"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    filas = resp.json()
+    return filas[0] if filas else None
+
+
+def _listar_cad_jobs_supabase(limite: int = 20) -> list[dict[str, Any]]:
+    import requests
+
+    config = leer_config_supabase()
+    if not config:
+        return []
+    resp = requests.get(
+        f"{config['url'].rstrip('/')}/rest/v1/cad_jobs",
+        headers=_headers_supabase(config),
+        params={"select": "*", "order": "created_at.desc", "limit": str(limite)},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _actualizar_cad_job_supabase(job_id: str, cambios: dict[str, Any]) -> dict[str, Any]:
+    import requests
+
+    config = leer_config_supabase()
+    if not config:
+        raise RuntimeError("Supabase no está configurado")
+    resp = requests.patch(
+        f"{config['url'].rstrip('/')}/rest/v1/cad_jobs",
+        headers=_headers_supabase(config),
+        params={"id": f"eq.{job_id}"},
+        json={**cambios, "updated_at": _ahora_iso()},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    job = _obtener_cad_job_supabase(job_id)
+    if not job:
+        raise FileNotFoundError(f"No existe el job CAD {job_id}")
+    return job
 
 
 def estado_a_payload(estado: ProyectoState) -> dict[str, Any]:
@@ -156,12 +241,16 @@ def crear_cad_job(
         "resultado": {},
         "error": "",
     }
+    if _usar_supabase(cola_dir):
+        return _crear_cad_job_supabase(job)
     write_json_atomic(str(_ruta_job(job_id, cola_dir)), job)
     return job
 
 
 def obtener_cad_job(job_id: str, cola_dir: str | Path = DEFAULT_CAD_QUEUE_DIR) -> dict[str, Any] | None:
     """Lee un job por id."""
+    if _usar_supabase(cola_dir):
+        return _obtener_cad_job_supabase(job_id)
     ruta = _ruta_job(job_id, cola_dir)
     job = read_json(str(ruta), None)
     return job if isinstance(job, dict) else None
@@ -169,6 +258,8 @@ def obtener_cad_job(job_id: str, cola_dir: str | Path = DEFAULT_CAD_QUEUE_DIR) -
 
 def listar_cad_jobs(cola_dir: str | Path = DEFAULT_CAD_QUEUE_DIR, limite: int = 20) -> list[dict[str, Any]]:
     """Lista los jobs más recientes."""
+    if _usar_supabase(cola_dir):
+        return _listar_cad_jobs_supabase(limite)
     ruta = Path(cola_dir)
     if not ruta.exists():
         return []
@@ -193,6 +284,8 @@ def actualizar_cad_job(
     status = cambios.get("status")
     if status and status not in ESTADOS_CAD:
         raise ValueError(f"Estado CAD inválido: {status}")
+    if _usar_supabase(cola_dir):
+        return _actualizar_cad_job_supabase(job_id, cambios)
     job.update(cambios)
     job["updated_at"] = _ahora_iso()
     write_json_atomic(str(_ruta_job(job_id, cola_dir)), job)

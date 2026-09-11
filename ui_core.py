@@ -63,18 +63,28 @@ class ProjectManager:
     # -- proyectos -------------------------------------------------------
     @property
     def projects(self) -> dict:
-        return {p["id"]: p for p in self._sqlite.listar_proyectos()}
+        return {p["id"]: p for p in self.list_projects()}
 
     def save_project(self, project_id: str, data: dict):
+        if hasattr(self.repo, "guardar_proyecto"):
+            self.repo.guardar_proyecto(project_id, data)
+            return
         self._sqlite.guardar_proyecto(project_id, data)
 
     def get_project(self, project_id: str) -> dict | None:
+        if hasattr(self.repo, "obtener_proyecto"):
+            return self.repo.obtener_proyecto(project_id)
         return self._sqlite.obtener_proyecto(project_id)
 
     def list_projects(self) -> list[dict]:
+        if hasattr(self.repo, "listar_proyectos"):
+            return self.repo.listar_proyectos()
         return self._sqlite.listar_proyectos()
 
     def delete_project(self, project_id: str):
+        if hasattr(self.repo, "eliminar_proyecto"):
+            self.repo.eliminar_proyecto(project_id)
+            return
         self._sqlite.eliminar_proyecto(project_id)
 
 

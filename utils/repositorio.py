@@ -30,10 +30,11 @@ En `.streamlit/secrets.toml` (o variables de entorno):
     [supabase]
     url = "https://<proyecto>.supabase.co"
     anon_key = "<anon key del proyecto>"
+    service_role_key = "<service role key del proyecto>"
 
-⚠️ Usar la **anon key** del proyecto, no un *personal access token* de la cuenta.
-Son cosas distintas: el PAT (`sbp_...`) administra TODA tu cuenta de Supabase y
-nunca debe salir de tu gestor de contraseñas ni aparecer en una app cliente.
+⚠️ En Streamlit, la `service_role_key` se usa solo del lado servidor para poder
+guardar leads/jobs con RLS activo. No debe escribirse en el navegador ni en el
+repositorio. No usar un *personal access token* (`sbp_...`) dentro de la app.
 
 Tabla esperada (ejecutar en el SQL editor de Supabase):
 
@@ -200,17 +201,24 @@ class RepositorioSupabase(RepositorioLeads):
     que ya está en requirements.txt.
     """
 
-    def __init__(self, url: str, anon_key: str, tabla: str = "leads", timeout: int = 10):
+    def __init__(
+        self,
+        url: str,
+        anon_key: str = "",
+        service_role_key: str = "",
+        tabla: str = "leads",
+        timeout: int = 10,
+    ):
         self.url = url.rstrip("/")
-        self.anon_key = anon_key
+        self.key = service_role_key or anon_key
         self.tabla = tabla
         self.timeout = timeout
 
     @property
     def _headers(self) -> dict[str, str]:
         return {
-            "apikey": self.anon_key,
-            "Authorization": f"Bearer {self.anon_key}",
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}",
             "Content-Type": "application/json",
             "Prefer": "return=representation",
         }
@@ -242,28 +250,97 @@ class RepositorioSupabase(RepositorioLeads):
         resp.raise_for_status()
         return resp.json()
 
+    # -- proyectos -------------------------------------------------------
+    def guardar_proyecto(self, proyecto_id: str, datos: dict[str, Any]) -> None:
+        import requests
+
+        registro = {"id": proyecto_id, "updated_at": _ahora_iso(), "datos": datos}
+        headers = {**self._headers, "Prefer": "resolution=merge-duplicates,return=representation"}
+        resp = requests.post(
+            f"{self.url}/rest/v1/proyectos",
+            headers=headers,
+            params={"on_conflict": "id"},
+            json=registro,
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+
+    def obtener_proyecto(self, proyecto_id: str) -> dict[str, Any] | None:
+        import requests
+
+        resp = requests.get(
+            f"{self.url}/rest/v1/proyectos",
+            headers=self._headers,
+            params={"select": "*", "id": f"eq.{proyecto_id}", "limit": "1"},
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        filas = resp.json()
+        if not filas:
+            return None
+        fila = filas[0]
+        return {"id": fila["id"], "updated_at": fila["updated_at"], **(fila.get("datos") or {})}
+
+    def listar_proyectos(self) -> list[dict[str, Any]]:
+        import requests
+
+        resp = requests.get(
+            f"{self.url}/rest/v1/proyectos",
+            headers=self._headers,
+            params={"select": "*", "order": "updated_at.desc"},
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return [
+            {"id": f["id"], "updated_at": f["updated_at"], **(f.get("datos") or {})}
+            for f in resp.json()
+        ]
+
+    def eliminar_proyecto(self, proyecto_id: str) -> None:
+        import requests
+
+        resp = requests.delete(
+            f"{self.url}/rest/v1/proyectos",
+            headers=self._headers,
+            params={"id": f"eq.{proyecto_id}"},
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+
 
 # ---------------------------------------------------------------------------
 # Selección automática
 # ---------------------------------------------------------------------------
 
-def _leer_config_supabase() -> dict[str, str] | None:
-    url = key = ""
+def leer_config_supabase() -> dict[str, str] | None:
+    """Lee credenciales Supabase desde Streamlit Secrets o variables de entorno."""
+    url = anon_key = service_role_key = ""
     try:
         import streamlit as st
 
         seccion = st.secrets.get("supabase", {})
         url = str(seccion.get("url", "") or "")
-        key = str(seccion.get("anon_key", "") or "")
+        anon_key = str(seccion.get("anon_key", "") or "")
+        service_role_key = str(
+            seccion.get("service_role_key", "")
+            or seccion.get("service_key", "")
+            or ""
+        )
     except Exception:
         pass
 
     url = url or os.getenv("SUPABASE_URL", "")
-    key = key or os.getenv("SUPABASE_ANON_KEY", "")
+    anon_key = anon_key or os.getenv("SUPABASE_ANON_KEY", "")
+    service_role_key = service_role_key or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
-    if url and key:
-        return {"url": url, "anon_key": key}
+    if url and (service_role_key or anon_key):
+        return {"url": url, "anon_key": anon_key, "service_role_key": service_role_key}
     return None
+
+
+def _leer_config_supabase() -> dict[str, str] | None:
+    """Alias interno conservado por compatibilidad con tests/código previo."""
+    return leer_config_supabase()
 
 
 def obtener_repositorio() -> RepositorioLeads:
