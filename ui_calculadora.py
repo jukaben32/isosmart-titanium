@@ -218,6 +218,7 @@ def pagina_calculadora():
     render_modulo_vision_y_canvas(modelo_gemini)
 
     st.divider()
+    estado_calculo = ProyectoState.cargar()
 
     # Barra lateral de configuración
     with st.sidebar:
@@ -227,12 +228,30 @@ def pagina_calculadora():
 
         cliente = st.text_input("👤 Nombre del Cliente", "Proyecto Residencial")
         
-        area_default = st.session_state.get("calc_area_m2", float(text_design_params.get("area_m2", 120.0)))
-        m2_in = st.number_input(
-            "📐 Área (m²)",
-            value=area_default,
-            min_value=10.0,
-            max_value=10000.0,
+        area_default = float(estado_calculo.area_m2 or text_design_params.get("area_m2", 120.0))
+        area_default = max(20.0, min(5000.0, area_default))
+        area_key = "calc_area_slider_m2"
+        area_base_key = "_calc_area_estado_base_m2"
+        area_llego_de_otra_pagina = (
+            st.session_state.get(area_base_key) is not None
+            and float(st.session_state.get(area_base_key)) != float(area_default)
+        )
+        if area_key not in st.session_state or area_llego_de_otra_pagina:
+            st.session_state[area_key] = area_default
+            st.session_state[area_base_key] = area_default
+        else:
+            st.session_state[area_key] = max(20.0, min(5000.0, float(st.session_state[area_key])))
+
+        m2_in = st.slider(
+            "📐 Área de construcción (m²)",
+            min_value=20.0,
+            max_value=5000.0,
+            step=10.0,
+            key=area_key,
+            help=(
+                "Esta barra alimenta el resumen, las tablas de materiales, "
+                "la comparativa, el PDF y las demás páginas del proyecto."
+            ),
         )
         # Antes: `st.session_state["calc_area_m2"] = m2_in` aquí mismo --
         # redundante con `estado_proyecto.guardar()` unas líneas más abajo
@@ -354,6 +373,11 @@ def pagina_calculadora():
     estado_proyecto.calidad = calidad_terminados
     estado_proyecto.zona_riesgo = zona_riesgo
     estado_proyecto.guardar()
+    # La barra de Inicio usa otra key de widget. En esta página no existe ese
+    # widget, así que podemos mantenerla alineada para la próxima visita.
+    st.session_state["inicio_area_m2"] = float(m2_in)
+    st.session_state["_inicio_area_m2_previa"] = float(m2_in)
+    st.session_state["_calc_area_estado_base_m2"] = float(m2_in)
 
     geo = estado_proyecto.geometria()
     motor = MotorQTO(geo, precios_actuales, sistema=sistema_seleccionado,

@@ -72,6 +72,17 @@ def pagina_inicio():
         step=10,
         key="inicio_area_m2",
     )
+    area_previa = st.session_state.get("_inicio_area_m2_previa")
+    area_cambio = area_previa is not None and float(area_inicio) != float(area_previa)
+    st.session_state["_inicio_area_m2_previa"] = float(area_inicio)
+    if area_cambio:
+        estado.area_m2 = float(area_inicio)
+        # Si el visitante mueve la barra, esa área tentativa pasa a ser la
+        # referencia viva para las demás páginas.
+        estado.perimetro_m = None
+        estado.origen_metricas = "Inicio - area tentativa"
+        estado.guardar()
+
     datos = calcular_comparativa_area(
         area_inicio,
         precios=precios,
