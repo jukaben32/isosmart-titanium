@@ -1,4 +1,9 @@
-"""Módulo de interfaz de IsoSmart Titanium (refactor de app.py, 2026-07-10)."""
+"""Router principal de IsoSmart Titanium (rediseño 2026-09).
+
+Menú único y minimalista de 6 secciones: Inicio -> Plano -> Presupuesto ->
+Solar -> Finanzas -> Nosotros. El flujo se guía por el estado del proyecto
+(ProyectoState), no por paneles independientes.
+"""
 import streamlit as st
 
 # Configuracion de la pagina (debe ser la PRIMERA llamada a Streamlit)
@@ -9,74 +14,48 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-
-# Módulos de interfaz (refactor de app.py, 2026-07-10)
-from ui_calculadora import (
-    pagina_calculadora,
-    pagina_contacto,
-    pagina_plano_estructura,
-)
-from ui_inicio import pagina_inicio
-from ui_presupuesto import (
-    pagina_panel_operativo,
-    pagina_presupuesto_detallado,
-)
-from ui_team import pagina_team
-from ui_visor_bim import pagina_visor_bim
-from utils.estado import ProyectoState
-from utils.estilos import caja_info, inyectar_css
-
-try:
-    from streamlit_drawable_canvas import st_canvas
-except Exception:
-    st_canvas = None
+from ui_inicio import pagina_inicio  # noqa: E402
+from utils.estado import ProyectoState  # noqa: E402
+from utils.estilos import caja_info, inyectar_css  # noqa: E402
 
 PAGINAS = {}
+
+
+def _importar_pagina(nombre_modulo: str):
+    """Importa (una sola vez) un módulo de paginas/ y devuelve la función page."""
+    import importlib
+
+    return importlib.import_module(f"paginas.{nombre_modulo}")
+
+
+def _pagina_movida(nombre_modulo: str, funcion: str):
+    """Wrapper de una página movida a paginas/ para el router."""
+    def render():
+        _importar_pagina(nombre_modulo).__dict__[funcion]()
+    return render
 
 
 def _registrar_paginas():
     """Tabla única de navegación. Añadir una página es añadir una entrada aquí."""
     PAGINAS.clear()
     PAGINAS.update({
-        "🏠 Cotizador": pagina_inicio,
-        "👷 Equipo": pagina_team,
-        "🧮 Calculadora Avanzada": pagina_calculadora,
-        "🧾 Presupuesto Detallado": pagina_presupuesto_detallado,
-        "📐 Planos y CAD": pagina_plano_estructura,
-        "🧱 Visor BIM 3D": pagina_visor_bim,
-        "📊 Finanzas": _pagina_dashboard_financiero,
-        "⚡ Energía Solar": _pagina_analisis_energetico,
-        "🎛️ Operación": pagina_panel_operativo,
-        "📞 Contacto": pagina_contacto,
+        "🏠 Inicio": pagina_inicio,
+        "📐 Plano": _pagina_movida("plano", "pagina_plano"),
+        "🧮 Presupuesto": _pagina_movida("presupuesto", "pagina_presupuesto"),
+        "⚡ Solar": _pagina_movida("solar", "pagina_solar"),
+        "💰 Finanzas": _pagina_movida("finanzas", "pagina_finanzas"),
+        "👷 Nosotros": _pagina_movida("nosotros", "pagina_nosotros"),
     })
-
-
-def _pagina_dashboard_financiero():
-    """Envuelve pages/1_Dashboard_Financiero.py para el router unificado."""
-    import importlib
-
-    modulo = importlib.import_module("paginas.dashboard_financiero")
-    modulo.main()
-
-
-def _pagina_analisis_energetico():
-    import importlib
-
-    modulo = importlib.import_module("paginas.analisis_energetico")
-    modulo.main()
 
 
 def main():
     """
     Router único.
 
-    ANTES coexistían DOS sistemas de navegación: este menú `st.radio` y la
-    carpeta `pages/`, que Streamlit convierte automáticamente en navegación
-    multipágina. El usuario veía dos barras laterales con contenidos distintos,
-    y las páginas de `pages/` no compartían el estado del menú principal (el
-    Dashboard pedía el área otra vez con su propio slider).
-
-    Ahora hay un solo menú. Las páginas antiguas siguen accesibles desde aquí.
+    Invocación directa desde el index principal. El estado de navegación vive
+    en `seccion_nav` y se puede programar desde cualquier página escribiendo
+    `st.session_state["_nav_destino"] = "<clave del menú>"` y llamando a
+    `st.rerun()`.
     """
     inyectar_css()
 
@@ -110,8 +89,8 @@ def main():
 
         st.divider()
         caja_info(
-            "Empieza con m², sube un plano o describe la vivienda para activar "
-            "el presupuesto y la solicitud CAD.",
+            "Empieza con m², sube un plano o describe la vivienda en Inicio "
+            "para activar Plano, Presupuesto, Solar y Finanzas.",
             "Flujo guiado",
         )
 

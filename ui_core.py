@@ -30,6 +30,45 @@ try:
 except Exception:  # pragma: no cover - depende del entorno de despliegue
     st_canvas = None
 
+from utils.estilos import caja_info  # noqa: E402  reutilizada por el guard
+
+# ---------------------------------------------------------------------------
+# Guard de proyecto activo (rediseño 2026-09).
+#
+# Las páginas Presupuesto, Solar y Finanzas solo tienen sentido cuando el
+# usuario ya calculó un proyecto desde Inicio (por área, plano o pedido por
+# texto). Este guard corta la página y ofrece volver a Inicio si no hay nada.
+# ---------------------------------------------------------------------------
+def proyecto_activo() -> bool:
+    """¿Ya existe un proyecto con dimensiones listo para calcular?"""
+    estado = ProyectoState.cargar()
+    return bool(
+        estado.origen_metricas
+        or st.session_state.get("inicio_resultado_activo")
+        or estado.habitaciones
+    )
+
+
+def render_guard_sin_proyecto() -> bool:
+    """
+    Pantalla de bloqueo para páginas que necesitan un proyecto primero.
+
+    Devuelve True si hay proyecto (la página puede seguir) y False si ya se
+    mostró la invitación a Inicio (la página debe cortar ahí).
+    """
+    if proyecto_activo():
+        return True
+    caja_info(
+        "Todavía no has creado tu proyecto. Introduce los metros cuadrados, "
+        "sube un plano o describe tu vivienda desde Inicio para activar "
+        "Presupuesto, Solar y Finanzas.",
+        "🚧 Sin proyecto activo",
+    )
+    if st.button("🏠 Ir a Inicio para empezar", type="primary", use_container_width=True):
+        st.session_state["_nav_destino"] = "🏠 Inicio"
+        st.rerun()
+    return False
+
 
 class ProjectManager:
     """

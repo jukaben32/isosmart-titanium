@@ -137,31 +137,43 @@ def test_los_helpers_escapan_html():
 
 def test_todas_las_paginas_estan_registradas_y_son_invocables():
     """
-    Bug: coexistían el menú `st.radio` de app.py y la carpeta `pages/`, que
-    Streamlit convierte en navegación automática. Dos barras laterales con
-    contenidos distintos y sin estado compartido.
+    Rediseño 2026-09: el menú se redujo de 10 entradas a 6 (Inicio, Plano,
+    Presupuesto, Solar, Finanzas, Nosotros). Ya no existen páginas
+    independientes en pages/.
     """
     import app
 
     app._registrar_paginas()
-    assert len(app.PAGINAS) >= 10
+    assert len(app.PAGINAS) >= 6
     for nombre, funcion in app.PAGINAS.items():
         assert callable(funcion), f"la página '{nombre}' no es invocable"
 
 
-def test_las_paginas_movidas_exponen_main():
+def test_las_paginas_movidas_exponen_main_o_pagina():
+    """Todas las páginas de paginas/ exponen la función esperada por el router."""
     import importlib
 
-    for modulo in ("paginas.dashboard_financiero", "paginas.analisis_energetico"):
-        assert hasattr(importlib.import_module(modulo), "main")
+    esperados = {
+        "paginas.dashboard_financiero": "main",
+        "paginas.analisis_energetico": "main",
+        "paginas.plano": "pagina_plano",
+        "paginas.presupuesto": "pagina_presupuesto",
+        "paginas.solar": "pagina_solar",
+        "paginas.finanzas": "pagina_finanzas",
+        "paginas.nosotros": "pagina_nosotros",
+    }
+    for modulo, attr in esperados.items():
+        mod = importlib.import_module(modulo)
+        assert hasattr(mod, attr), f"{modulo} no expone {attr}()"
 
 
-def test_solo_el_crm_queda_como_pagina_independiente():
-    """El resto se enruta desde app.py; el admin sigue aparte a propósito."""
+def test_no_quedan_paginas_independientes_fuera_del_router():
+    """Tras eliminar el CRM, pages/ ya no debe existir (git no trackea vacíos)."""
     import os
 
-    archivos = [f for f in os.listdir("pages") if f.endswith(".py")]
-    assert archivos == ["3_Admin_Leads.py"], archivos
+    assert not os.path.isdir("pages"), (
+        "pages/ ya no debe existir; todo se enruta desde app.py"
+    )
 
 
 # ===========================================================================

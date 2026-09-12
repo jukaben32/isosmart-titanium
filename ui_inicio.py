@@ -155,8 +155,8 @@ def _render_resultado(estado: ProyectoState, precios: dict[str, float]) -> None:
             "los acabados se comparan iguales en ambos sistemas."
         )
     with col_b:
-        if st.button("Abrir calculadora avanzada", use_container_width=True):
-            _ir_a("🧮 Calculadora Avanzada")
+        if st.button("Ver presupuesto detallado", use_container_width=True):
+            _ir_a("🧮 Presupuesto")
 
     if datos["monto_por_verificar"] > 0:
         monto = datos["monto_por_verificar"]
@@ -224,7 +224,7 @@ def _render_entrada_por_plano() -> None:
     st.divider()
     st.caption("Para PDF o imagen, usa la herramienta de medición con canvas.")
     if st.button("Ir a medición de PDF/imagen", use_container_width=True):
-        _ir_a("📐 Planos y CAD")
+        _ir_a("📐 Plano")
 
 
 def _render_entrada_por_pedido() -> None:
