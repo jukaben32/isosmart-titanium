@@ -311,13 +311,12 @@ def render_text_design_assistant(context_key: str):
 
             st.session_state["text_design_params"] = params
             st.session_state["descripcion_lead"] = descripcion
-            st.session_state[f"text_design_activo_{context_key}"] = True
             st.success("¡Listo! Revisa tu presupuesto y el esquema a continuación.")
 
     # -- resultados: fuera del expander para que no se colapsen -----------
     estado = ProyectoState.cargar()
     params = st.session_state.get("text_design_params")
-    if not params or not st.session_state.get(f"text_design_activo_{context_key}"):
+    if not params:
         return
 
     st.subheader("📋 Tu proyecto")

@@ -260,10 +260,6 @@ def pagina_calculadora():
             st.session_state["inicio_area_m2"] = int(round(float(m2_in)))
             st.session_state["_inicio_area_m2_previa"] = float(m2_in)
             st.session_state["_calc_area_estado_base_m2"] = float(m2_in)
-            st.session_state["calculadora_resultado_activo"] = True
-
-        if st.button("Calcular / actualizar presupuesto", use_container_width=True, type="primary"):
-            st.session_state["calculadora_resultado_activo"] = True
 
         render_text_design_assistant("calculadora")
         # Si el asistente de texto, DXF o canvas actualizó el estado en esta
@@ -392,22 +388,9 @@ def pagina_calculadora():
     estado_proyecto.guardar()
     # La barra de Inicio usa otra key de widget. En esta página no existe ese
     # widget, así que podemos mantenerla alineada para la próxima visita.
-    st.session_state["inicio_area_m2"] = int(round(float(m2_in)))
+    st.session_state["inicio_area_m2"] = float(m2_in)
     st.session_state["_inicio_area_m2_previa"] = float(m2_in)
     st.session_state["_calc_area_estado_base_m2"] = float(m2_in)
-
-    calculo_activo = bool(
-        st.session_state.get("inicio_resultado_activo")
-        or st.session_state.get("calculadora_resultado_activo")
-        or estado_proyecto.origen_metricas
-    )
-    if not calculo_activo:
-        st.info(
-            "No hay presupuesto activo todavía. Ajusta los metros cuadrados y pulsa "
-            "**Calcular / actualizar presupuesto**, sube un DXF o extrae medidas "
-            "desde un plano para activar los cálculos."
-        )
-        return
 
     geo = estado_proyecto.geometria()
     motor = MotorQTO(geo, precios_actuales, sistema=sistema_seleccionado,
