@@ -63,9 +63,12 @@ def pagina_presupuesto():
     )
 
     df = motor.presupuesto()
+    escenarios_df = calcular_escenarios(geo, precios)
+    por_verificar = motor.partidas_por_verificar()
+
+    _render_exportacion(estado, df, motor, escenarios_df, por_verificar)
 
     st.markdown("### 🧭 Escenarios rápidos")
-    escenarios_df = calcular_escenarios(geo, precios)
     st.dataframe(
         escenarios_df.style.format(
             {
@@ -115,39 +118,12 @@ def pagina_presupuesto():
         for limitacion in MotorQTO.limitaciones_conocidas():
             st.markdown(f"- {limitacion}")
 
-    _render_exportacion(estado, df, motor, escenarios_df, por_verificar)
-
 
 def _render_exportacion(estado, df, motor, escenarios_df, por_verificar):
     """Botones CSV / Excel / PDF con el nombre de archivo basado en el área."""
     area = estado.area_m2
     st.markdown("### 📥 Exportar")
-
-    st.download_button(
-        "📥 Descargar presupuesto (CSV)",
-        data=df.to_csv(index=False).encode("utf-8"),
-        file_name=f"presupuesto_{int(area)}m2.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
-
-    col_excel, col_pdf = st.columns(2)
-    with col_excel:
-        excel = BytesIO()
-        with pd.ExcelWriter(excel, engine="xlsxwriter") as writer:
-            df.to_excel(writer, sheet_name="Partidas", index=False)
-            motor.resumen_por_categoria().to_excel(writer, sheet_name="Resumen", index=False)
-            por_verificar.to_excel(writer, sheet_name="Precios por verificar", index=False)
-            escenarios_df.to_excel(writer, sheet_name="Escenarios", index=False)
-        st.download_button(
-            "📊 Descargar Excel completo",
-            data=excel.getvalue(),
-            file_name=f"presupuesto_detallado_{int(area)}m2.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-
-    with col_pdf:
+    with st.expander("Descargar exportaciones (PDF, Excel, CSV)", expanded=True):
         pdf = PDFGenerator().generar_propuesta(
             "Proyecto Residencial",
             {
@@ -160,10 +136,33 @@ def _render_exportacion(estado, df, motor, escenarios_df, por_verificar):
             motor.total(),
         )
         st.download_button(
-            "📄 Descargar PDF comercial",
+            f"📄 Descargar PDF con presupuesto total (RD$ {motor.total():,.0f})",
             data=pdf,
             file_name=f"propuesta_comercial_{int(area)}m2.pdf",
             mime="application/pdf",
+            use_container_width=True,
+            type="primary",
+        )
+
+        st.download_button(
+            "📥 Descargar presupuesto (CSV)",
+            data=df.to_csv(index=False).encode("utf-8"),
+            file_name=f"presupuesto_{int(area)}m2.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+        excel = BytesIO()
+        with pd.ExcelWriter(excel, engine="xlsxwriter") as writer:
+            df.to_excel(writer, sheet_name="Partidas", index=False)
+            motor.resumen_por_categoria().to_excel(writer, sheet_name="Resumen", index=False)
+            por_verificar.to_excel(writer, sheet_name="Precios por verificar", index=False)
+            escenarios_df.to_excel(writer, sheet_name="Escenarios", index=False)
+        st.download_button(
+            "📊 Descargar Excel completo",
+            data=excel.getvalue(),
+            file_name=f"presupuesto_detallado_{int(area)}m2.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 

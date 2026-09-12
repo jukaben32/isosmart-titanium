@@ -26,6 +26,9 @@ Thumbs.db
 # Temporal de verificacion Hermes
 hermes-verify-*.py
 
+# PDF comerciales generados (artefactos derivados)
+propuesta_*.pdf
+
 # Datos de clientes generados en runtime (PII) - NUNCA subir
 data/leads_db.json
 data/projects_db.json
