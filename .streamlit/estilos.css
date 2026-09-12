@@ -41,39 +41,85 @@ header,
     padding-top: 2rem;
 }
 
+/* --- inicio rediseñado ---------------------------------------------------- */
+.iso-hero {
+    border-left: 5px solid #11998e;
+    padding: 0.75rem 0 1.5rem 1.5rem;
+    margin: 0.5rem 0 1.25rem 0;
+    max-width: 920px;
+}
+
+.iso-hero h1 {
+    color: #111827;
+    font-size: 3rem;
+    line-height: 1.05;
+    margin: 0.15rem 0 0.75rem 0;
+    letter-spacing: 0;
+}
+
+.iso-hero p {
+    color: #4b5563;
+    font-size: 1.05rem;
+    line-height: 1.65;
+    margin: 0;
+    max-width: 760px;
+}
+
+.iso-kicker {
+    color: #11998e !important;
+    font-size: 0.78rem !important;
+    font-weight: 800;
+    letter-spacing: 0 !important;
+    text-transform: uppercase;
+}
+
+@media (max-width: 700px) {
+    .iso-hero {
+        padding-left: 1rem;
+    }
+
+    .iso-hero h1 {
+        font-size: 2rem;
+    }
+}
+
 /* --- tarjetas de métrica ------------------------------------------------- */
 .metric-card,
 .energy-card {
-    background: linear-gradient(135deg, var(--iso-violeta) 0%, var(--iso-violeta-osc) 100%);
-    padding: 1.5rem;
-    border-radius: var(--iso-radio);
-    color: #fff;
-    text-align: center;
+    background: #ffffff;
+    border: 1px solid #dbe3ef;
+    border-top: 4px solid var(--iso-azul);
+    padding: 1.15rem;
+    border-radius: 8px;
+    color: #111827;
+    text-align: left;
     margin: 0.5rem 0;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
 }
 
-.metric-card.green,  .energy-card.green  { background: linear-gradient(135deg, var(--iso-verde) 0%, var(--iso-verde-claro) 100%); }
-.metric-card.orange, .energy-card.orange { background: linear-gradient(135deg, var(--iso-rosa) 0%, var(--iso-naranja) 100%); }
-.metric-card.blue,   .energy-card.blue   { background: linear-gradient(135deg, var(--iso-cyan) 0%, var(--iso-cyan-claro) 100%); }
+.metric-card.green,  .energy-card.green  { border-top-color: var(--iso-verde); }
+.metric-card.orange, .energy-card.orange { border-top-color: #e0673e; }
+.metric-card.blue,   .energy-card.blue   { border-top-color: #148acb; }
 
 .metric-value,
 .energy-value {
-    font-size: 2.5rem;
+    color: #111827;
+    font-size: 1.45rem;
     font-weight: 700;
     margin: 0;
 }
 
 .metric-label,
 .energy-label {
-    font-size: 1rem;
-    opacity: 0.9;
-    margin: 5px 0 0 0;
+    color: #4b5563;
+    font-size: 0.92rem;
+    margin: 8px 0 0 0;
 }
 
 .metric-sub,
 .energy-sub {
+    color: #667085;
     font-size: 0.85rem;
-    opacity: 0.85;
     margin: 4px 0 0 0;
 }
 

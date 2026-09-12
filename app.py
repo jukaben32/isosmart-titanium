@@ -36,16 +36,17 @@ PAGINAS = {}
 
 def _registrar_paginas():
     """Tabla única de navegación. Añadir una página es añadir una entrada aquí."""
+    PAGINAS.clear()
     PAGINAS.update({
-        "🏠 Inicio": pagina_inicio,
-        "👷 Nuestro Team": pagina_team,
-        "🧮 Calculadora": pagina_calculadora,
+        "🏠 Cotizador": pagina_inicio,
+        "👷 Equipo": pagina_team,
+        "🧮 Calculadora Avanzada": pagina_calculadora,
         "🧾 Presupuesto Detallado": pagina_presupuesto_detallado,
-        "📐 Plano → Estructura": pagina_plano_estructura,
+        "📐 Planos y CAD": pagina_plano_estructura,
         "🧱 Visor BIM 3D": pagina_visor_bim,
-        "📊 Dashboard Financiero": _pagina_dashboard_financiero,
-        "⚡ Análisis Energético": _pagina_analisis_energetico,
-        "🎛️ Panel Operativo": pagina_panel_operativo,
+        "📊 Finanzas": _pagina_dashboard_financiero,
+        "⚡ Energía Solar": _pagina_analisis_energetico,
+        "🎛️ Operación": pagina_panel_operativo,
         "📞 Contacto": pagina_contacto,
     })
 
@@ -83,25 +84,35 @@ def main():
         st.image("https://img.icons8.com/color/96/construction.png", width=80)
         st.markdown("### 🏗️ IsoSmart Titanium")
 
+        destino = st.session_state.pop("_nav_destino", None)
+        if destino in PAGINAS:
+            st.session_state["seccion_nav"] = destino
+        elif st.session_state.get("seccion_nav") not in PAGINAS:
+            st.session_state["seccion_nav"] = next(iter(PAGINAS))
+
         seccion = st.radio(
             "Navegación",
             list(PAGINAS.keys()),
             label_visibility="collapsed",
+            key="seccion_nav",
         )
 
         st.divider()
 
         estado = ProyectoState.cargar()
         st.caption("Proyecto actual")
-        st.metric("Área", f"{estado.area_m2:,.0f} m²")
-        if estado.origen_metricas:
-            st.caption(f"Dimensiones desde: {estado.origen_metricas}")
+        if estado.origen_metricas or st.session_state.get("inicio_resultado_activo"):
+            st.metric("Área", f"{estado.area_m2:,.0f} m²")
+            if estado.origen_metricas:
+                st.caption(f"Dimensiones desde: {estado.origen_metricas}")
+        else:
+            st.caption("Sin cálculo activo")
 
         st.divider()
         caja_info(
-            "El poliestireno expandido puede reducir 20-40% el costo de OBRA GRIS "
-            "frente al método tradicional. Los acabados son equivalentes.",
-            "💡 ¿Sabías qué?",
+            "Empieza con m², sube un plano o describe la vivienda para activar "
+            "el presupuesto y la solicitud CAD.",
+            "Flujo guiado",
         )
 
     PAGINAS[seccion]()
