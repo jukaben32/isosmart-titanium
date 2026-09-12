@@ -527,7 +527,7 @@ def pagina_presupuesto_detallado():
                 "calidad": calidad,
                 "zona_riesgo": zona,
             },
-            motor.presupuesto_formato_legado(),
+            motor.presupuesto(),
             motor.total(),
         )
         st.download_button(

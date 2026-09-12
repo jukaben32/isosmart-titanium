@@ -156,7 +156,7 @@ def _render_exportacion(estado, df, motor, escenarios_df, por_verificar):
                 "calidad": estado.calidad,
                 "zona_riesgo": estado.zona_riesgo,
             },
-            motor.presupuesto_formato_legado(),
+            df,
             motor.total(),
         )
         st.download_button(
