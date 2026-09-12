@@ -101,6 +101,36 @@ def test_paneles_se_modulan_a_1_22_hacia_arriba():
     assert g.area_panel_comprada_m2 >= g.area_muros_m2  # la modulación agrega merma real
 
 
+def test_paneles_de_losa_cubren_el_area_no_una_linea():
+    """
+    Bug corregido: el conteo usaba `sqrt(area) / (ancho[1.22])`, que solo
+    contaba una hilera de paneles (112 m² -> 9 piezas). La ficha oficial
+    "Qualylosa Covintec 4\"" (QLOSA-4PULG-325-1.pdf) define el panel de
+    losa como 1.22 x 3.25 m = 3.965 m²: el conteo debe cubrir el AREA.
+    """
+    largo_panel = P["panel"]["losa_largo_estandar_m"]
+    assert largo_panel == pytest.approx(3.25, rel=1e-6)  # ficha oficial Qualylosa
+
+    g = geo(area_m2=112.0)  # losa de 14 x 8 m
+    esperado = math.ceil(g.area_planta_m2 / (P["panel"]["ancho_util_m"] * largo_panel))
+    assert esperado == 29  # ceil(112 / 3.965)
+    assert g.n_paneles_losa == esperado
+
+    # El conteo crece con el área y con los niveles, y nunca baja de 1.
+    grande = geo(area_m2=240.0)
+    assert grande.n_paneles_losa > g.n_paneles_losa
+    # Con 2 niveles la huella por nivel es la mitad: 15 paneles/nivel x 2 = 30.
+    dos_pl = geo(area_m2=112.0, niveles=2)
+    esperado_2n = math.ceil(dos_pl.area_planta_m2 / (P["panel"]["ancho_util_m"] * largo_panel)) * 2
+    assert dos_pl.n_paneles_losa == esperado_2n == 30
+
+
+def test_altura_efectiva_mayor_a_2_44_empalma_muros():
+    """Alturas > 2.44 m (largo comercial del panel) requieren empalme."""
+    g = geo(altura_muro_m=3.0)
+    assert len({p.partida for p in MotorQTO(g).partidas() if "unión" in p.partida}) >= 1
+
+
 # ===========================================================================
 # Espesores: coherencia con docs/BASE_TECNICA_EPS_ICF.md
 # ===========================================================================
@@ -1072,3 +1102,88 @@ def test_isolosa_documenta_modulo_confirmado_y_espesor_variable():
 
     assert "variable" in FICHA_ISOLOSA.cita.lower()
     assert "estructural" in FICHA_ISOLOSA.cita.lower()
+
+
+# ===========================================================================
+# Desglose del plano (auditoría 2026-09): cielo raso y partidas nuevas
+# ===========================================================================
+
+def test_cielo_raso_cubre_ambas_losas_y_queda_solo_como_partida_instalada():
+    """
+    El cielo raso (aplanado 2.5 cm + pintura del techo interior, confirmado
+    por el usuario) se modela como UNA partida por m² instalado que cubre la
+    azotea Y el entrepiso. No debe aparecer además dentro del mortero de
+    fachada ni en la pintura de muros (evita doble conteo).
+    """
+    g = geo(area_m2=240, niveles=2)  # 2 niveles -> azotea + entrepiso
+    motor = MotorQTO(g)
+    cielo = [p for p in motor.partidas() if p.partida == "Cielo raso"]
+
+    assert len(cielo) == 1
+    # area_planta = 240/2 = 120 por nivel; azotea + entrepiso = 120 + 120
+    assert cielo[0].cantidad_neta == pytest.approx(240.0)
+    assert "2.5" in cielo[0].detalle          # mortero de 2.5 cm documentado
+    assert cielo[0].clave_precio == "Cielo_raso_m2"
+
+
+def test_loseta_de_bano_y_salpicadero_de_cocina_aparecen_en_el_base():
+    """
+    A diferencia del alambre/diámetros (que dependen de la medición del
+    plano), loseta de pared en baños y salpicadero de cocina son acabados
+    que SIEMPRE existen y deben aparecer en el presupuesto base.
+    """
+    g = geo()  # 120 m², 1 nivel
+    motor = MotorQTO(g)
+    nombres = {p.partida for p in motor.partidas()}
+    assert "Loseta de pared en baños" in nombres
+    assert "Salpicadero de cocina" in nombres
+
+    loseta = next(p for p in motor.partidas() if p.partida == "Loseta de pared en baños")
+    salpi = next(p for p in motor.partidas() if p.partida == "Salpicadero de cocina")
+    assert loseta.cantidad_neta == pytest.approx(g.n_banos * 10.0)
+    assert salpi.cantidad_neta == pytest.approx(g.ml_cocina_m * 0.6)
+
+
+def test_instalaciones_detalladas_incluyen_alambre_diametros_y_equipamiento():
+    """
+    Las partidas dependientes del plano solo aparecen cuando hay detalle
+    (cantidades > 0). Todas deben tener clave de precio presente.
+    """
+    from utils.instalaciones import InstalacionesDetalle
+
+    g = geo()
+    inst = InstalacionesDetalle(
+        ml_alambre_electrico=100,
+        ml_tuberia_agua_1_2=30,
+        ml_tuberia_agua_3_4=10,
+        ml_tuberia_sanitaria_4=15,
+        lamparas=12,
+        kw_sistema_solar=3,
+        pozo_septico=1,
+        cisterna_m3=8,
+    )
+    motor = MotorQTO(g, instalaciones=inst)
+    df = motor.presupuesto()
+    texto = " ".join(df["partida"]).lower()
+
+    for imprescindible in ("alambre", "tubería de agua 1/2", "tubería de agua 3/4",
+                           "tubería sanitaria 4", "lámparas", "sistema fotovoltaico",
+                           "pozo séptico", "cisterna"):
+        assert imprescindible in texto, f"falta la partida: {imprescindible}"
+
+    # todas aparecen con clave de precio
+    for p in motor.partidas():
+        assert p.clave_precio, p.partida
+        assert p.precio_unitario > 0, p.partida
+
+
+def test_partidas_dependientes_del_plano_no_aparecen_sin_detalle():
+    """
+    En el presupuesto base (sin InstalacionesDetalle) las cantidades son 0,
+    así que alambre/diámetros/solar/pozo/cisterna NO deben inflar el total.
+    """
+    df = MotorQTO(geo()).presupuesto()
+    presente = set(df["partida"])
+    for no_visible in ("Alambre eléctrico", "Sistema fotovoltaico",
+                       "Pozo séptico", "Cisterna", "Tubería de agua 1/2\""):
+        assert no_visible not in presente, f"{no_visible} no debe aparecer sin detalle"

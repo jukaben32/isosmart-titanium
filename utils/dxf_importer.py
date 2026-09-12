@@ -382,15 +382,23 @@ def _estimar_ml_cocina(entidades: EntidadesDXF, bounds: tuple[float, float, floa
 def _medir_instalaciones(entidades: EntidadesDXF, bounds: tuple[float, float, float, float]) -> InstalacionesDetalle:
     sanitarios = _longitud_por_layer(entidades, "I-SANITARIA", bounds)
     agua = _longitud_por_layer(entidades, "I-HIDRO-FRIA", bounds) + _longitud_por_layer(entidades, "I-HIDRO-CALIENTE", bounds)
+    luminarias = _contar_circulos(entidades, "I-ILUMINACION", bounds)
+    canalizacion_electrica = _longitud_por_layer(entidades, "I-ELECTRICA", bounds)
+
+    # --- desglose de diámetros (estimaciones por capa) -------------------
+    # Agua fría: ~70% ramales 1/2" (salidas), ~30% alimentación 3/4" (principal)
+    # Sanitaria: ~50% del colector es 4" (WC + drenaje principal)
+    # Alambre eléctrico: conductores internos de la canalización (fase + neutro + tierra)
+    conductores_promedio = 3  # THW: fase, neutro, tierra
 
     return InstalacionesDetalle(
         tableros=max(1, _contar_textos(entidades, "I-ELECTRICA", "TABLERO", bounds)),
         tomacorrientes=_contar_circulos(entidades, "I-ELECTRICA", bounds),
         interruptores=_contar_textos(entidades, "I-ELECTRICA", "S", bounds),
-        luminarias=_contar_circulos(entidades, "I-ILUMINACION", bounds),
+        luminarias=luminarias,
         puntos_datos=_contar_circulos(entidades, "I-DATOS", bounds),
         camaras=_contar_textos(entidades, "I-SEGURIDAD", "CAM", bounds),
-        ml_canalizacion_electrica=_longitud_por_layer(entidades, "I-ELECTRICA", bounds),
+        ml_canalizacion_electrica=canalizacion_electrica,
         puntos_agua=max(0, round(agua / 5)),
         puntos_sanitarios=max(0, round(sanitarios / 4)),
         registros_sanitarios=_contar_circulos(entidades, "I-SANITARIA", bounds),
@@ -398,4 +406,10 @@ def _medir_instalaciones(entidades: EntidadesDXF, bounds: tuple[float, float, fl
         ml_tuberia_sanitaria=sanitarios,
         puntos_gas=max(0, _contar_textos(entidades, "I-GAS", "GLP", bounds)),
         puntos_clima=_contar_textos(entidades, "I-CLIMA", "AC", bounds),
+        # --- desglose nuevo (campos extensions) ---------------------------
+        ml_alambre_electrico=round(canalizacion_electrica * conductores_promedio, 2),
+        ml_tuberia_agua_1_2=round(agua * 0.70, 2),
+        ml_tuberia_agua_3_4=round(agua * 0.30, 2),
+        ml_tuberia_sanitaria_4=round(sanitarios * 0.50, 2),
+        lamparas=luminarias,
     )

@@ -562,9 +562,13 @@ class MotorQTO:
                         clave_precio, self._precio(clave_precio), "[doc]")
             )
         elif g.area_losa_azotea_m2 > 0:
+            # Panel de losa Qualylosa 4" (ficha oficial Covintec): 1.22 x 3.25 m.
+            ancho_panel = self.p["panel"]["ancho_util_m"]
+            largo_panel = self.p["panel"]["losa_largo_estandar_m"]
             partidas += [
                 Partida("Losa", "Panel de losa",
-                        f"{g.n_paneles_losa} piezas moduladas a 1.22 m",
+                        f"{g.n_paneles_losa} piezas de {ancho_panel:g} × {largo_panel:g} m "
+                        f"(Qualylosa 4\") = {g.n_paneles_losa * ancho_panel * largo_panel:.0f} m²",
                         "m²", g.area_losa_azotea_m2 + g.area_losa_entrepiso_m2, 0.0,
                         "Panel_Techo", self._precio("Panel_Techo")),
                 Partida("Losa", "Capa de compresión (azotea)",
@@ -579,10 +583,16 @@ class MotorQTO:
         # aparte (antes estaba combinado con el de azotea en una sola línea).
         if g.area_losa_entrepiso_m2 > 0:
             if self.sistema_techo:
+                # Solo los paneles del entrepiso: n_paneles_losa multiplica por
+                # TODOS los niveles (incluye la azotea, que aquí usa el sistema
+                # alternativo). Se calcula sobre el área del entrepiso, no sobre
+                # el total.
+                area_panel = self.p["panel"]["ancho_util_m"] * self.p["panel"]["losa_largo_estandar_m"]
+                piezas_entrepiso = math.ceil(g.area_losa_entrepiso_m2 / area_panel)
                 partidas.append(
                     Partida("Losa", "Panel de losa (entrepiso)",
-                            f"{g.n_paneles_losa} piezas moduladas a 1.22 m -- solo entrepiso, "
-                            f"la azotea usa {self.sistema_techo.capitalize()}",
+                            f"{piezas_entrepiso} piezas de 1.22 × 3.25 m (Qualylosa 4\") "
+                            f"-- solo entrepiso, la azotea usa {self.sistema_techo.capitalize()}",
                             "m²", g.area_losa_entrepiso_m2, 0.0,
                             "Panel_Techo", self._precio("Panel_Techo"))
                 )
@@ -667,6 +677,38 @@ class MotorQTO:
                         "Recorrido sanitario principal medido del plano",
                         "ml", i.ml_tuberia_sanitaria, 0.08, "Tuberia_sanitaria_ml",
                         self._precio("Tuberia_sanitaria_ml"), "[supuesto]"),
+                Partida("Instalaciones", "Alambre eléctrico",
+                        "Cable THW (fase + neutro + tierra) dentro de la canalización",
+                        "ml", i.ml_alambre_electrico, 0.03, "Alambre_THW_ml",
+                        self._precio("Alambre_THW_ml"), "[supuesto]"),
+                Partida("Instalaciones", "Tubería de agua 1/2\"",
+                        "Ramales de distribución a salidas de baños y cocina",
+                        "ml", i.ml_tuberia_agua_1_2, 0.08, "Tuberia_agua_1_2_ml",
+                        self._precio("Tuberia_agua_1_2_ml"), "[supuesto]"),
+                Partida("Instalaciones", "Tubería de agua 3/4\"",
+                        "Alimentación principal de agua fría/caliente",
+                        "ml", i.ml_tuberia_agua_3_4, 0.08, "Tuberia_agua_3_4_ml",
+                        self._precio("Tuberia_agua_3_4_ml"), "[supuesto]"),
+                Partida("Instalaciones", "Tubería sanitaria 4\"",
+                        "Drenaje principal y descargas de WC",
+                        "ml", i.ml_tuberia_sanitaria_4, 0.08, "Tuberia_sanitaria_4_ml",
+                        self._precio("Tuberia_sanitaria_4_ml"), "[supuesto]"),
+                Partida("Instalaciones", "Lámparas (luminarias reales)",
+                        "Suministro e instalación de cada lámpara",
+                        "ud", i.lamparas, 0.0, "Lampara_ud",
+                        self._precio("Lampara_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Sistema fotovoltaico",
+                        "Paneles, inversor y montaje por kW pico instalado",
+                        "kW", i.kw_sistema_solar, 0.0, "Sistema_solar_kw",
+                        self._precio("Sistema_solar_kw"), "[supuesto]"),
+                Partida("Instalaciones", "Pozo séptico",
+                        "Pozo séptico y campo de absorción",
+                        "ud", i.pozo_septico, 0.0, "Pozo_septico_ud",
+                        self._precio("Pozo_septico_ud"), "[supuesto]"),
+                Partida("Instalaciones", "Cisterna",
+                        "Cisterna de concreto impermeabilizada",
+                        "m³", i.cisterna_m3, 0.0, "Cisterna_m3",
+                        self._precio("Cisterna_m3"), "[supuesto]"),
                 Partida("Instalaciones", "Punto de gas",
                         "Línea GLP básica hacia cocina",
                         "ud", i.puntos_gas, 0.0, "Punto_gas_ud",
@@ -700,6 +742,12 @@ class MotorQTO:
                     g.area_m2, self._desp("acabados"), clave_piso,
                     self._precio(clave_piso) * (f / 1.0 if clave_piso == "Ceramica_m2" else 1.0),
                     "[supuesto]"),
+            Partida("Acabados", "Loseta de pared en baños",
+                    "Loseta cerámica sobre muro de zona húmeda, ~10 m² por baño "
+                    "(cantidad estimada por área, no contada del plano)", "m²",
+                    g.n_banos * 10.0, self._desp("acabados"),
+                    "Loseta_pared_bano_m2", self._precio("Loseta_pared_bano_m2") * f,
+                    "[supuesto]"),
             Partida("Acabados", "Pintura",
                     "Vinílica, 3 manos sobre ambas caras de muro "
                     "(rendimiento de 12 m²/galón: supuesto, sin ficha técnica). "
@@ -708,8 +756,11 @@ class MotorQTO:
                     "gal", math.ceil(g.area_muros_m2 * 2 / 12.0), self._desp("acabados"),
                     "Pintura_galon", self._precio("Pintura_galon") * f, "[supuesto]"),
             Partida("Acabados", "Cielo raso",
-                    "Suministro e instalación", "m²",
-                    g.area_planta_m2, self._desp("acabados"),
+                    "Aplanado de mortero de 2.5 cm + pintura del techo interior, "
+                    "suministro e instalación por m² (espesor confirmado por el "
+                    "usuario; la mano de obra va incluida en el precio instalado)", "m²",
+                    g.area_losa_azotea_m2 + g.area_losa_entrepiso_m2,
+                    self._desp("acabados"),
                     "Cielo_raso_m2", self._precio("Cielo_raso_m2") * f, "[supuesto]"),
             Partida("Acabados", "Impermeabilización de azotea",
                     "Sistema sobre capa de compresión", "m²",
@@ -750,6 +801,12 @@ class MotorQTO:
                     ml, 0.0, "Meson_granito_ml", self._precio("Meson_granito_ml") * f, "[supuesto]"),
             Partida("Cocina", "Fregadero", "Suministro e instalación", "ud",
                     1, 0.0, "Fregadero_cocina", self._precio("Fregadero_cocina") * f, "[supuesto]"),
+            Partida("Cocina", "Salpicadero de cocina",
+                    "Loseta cerámica en el muro entre mesón y gabinete alto "
+                    "(0.6 m de alto x metros lineales de cocina)", "m²",
+                    g.ml_cocina_m * 0.6, self._desp("acabados"),
+                    "Salpicadero_cocina_m2", self._precio("Salpicadero_cocina_m2") * f,
+                    "[supuesto]"),
         ]
         return partidas
 
@@ -854,6 +911,14 @@ class MotorQTO:
             ml_tuberia_sanitaria=1,
             puntos_gas=1,
             puntos_clima=1,
+            ml_alambre_electrico=1,
+            ml_tuberia_agua_1_2=1,
+            ml_tuberia_agua_3_4=1,
+            ml_tuberia_sanitaria_4=1,
+            lamparas=1,
+            kw_sistema_solar=1,
+            pozo_septico=1,
+            cisterna_m3=1,
         )
         motor = cls(geo, precios, calidad="alta", instalaciones=instalaciones)
         return frozenset(p.clave_precio for p in motor.partidas() if p.clave_precio)

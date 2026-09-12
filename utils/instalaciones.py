@@ -24,6 +24,16 @@ class InstalacionesDetalle:
     ml_tuberia_sanitaria: float = 0.0
     puntos_gas: int = 0
     puntos_clima: int = 0
+    # --- desglose por diámetro y conductor (medido del plano) -----------
+    ml_alambre_electrico: float = 0.0       # ml de cable THW (fase + neutro + tierra)
+    ml_tuberia_agua_1_2: float = 0.0       # ramales de distribución (1/2")
+    ml_tuberia_agua_3_4: float = 0.0       # alimentación principal (3/4")
+    ml_tuberia_sanitaria_4: float = 0.0    # tubería sanitaria 4" (WC/drenaje)
+    # --- acabados y equipamiento que requieren cantidad explícita --------
+    lamparas: int = 0                       # lámparas/luminarias reales (suministro + instalación)
+    kw_sistema_solar: float = 0.0           # sistema fotovoltaico (kW de paneles)
+    pozo_septico: int = 0                   # pozos sépticos
+    cisterna_m3: float = 0.0                # capacidad de cisterna en m³
 
     @property
     def tiene_detalle(self) -> bool:

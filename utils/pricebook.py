@@ -101,6 +101,27 @@ DEFAULT_PRICEBOOK: dict[str, float] = {
     "Puerta_exterior": 22000.00,
     "Impermeabilizante_azotea_m2": 750.00,
     "Cielo_raso_m2": 950.00,
+
+    # -----------------------------------------------------------------
+    # Desglose de instalaciones y acabados del plano (auditoría 2026-09):
+    # metros de alambre, tubería por diámetro, lámparas reales, loseta de
+    # pared, pozo séptico, cisterna y sistema fotovoltaico. Todos son
+    # [supuesto] -- estimaciones de ingeniería SIN cotización de proveedor,
+    # así que se marcan en PRECIOS_POR_VERIFICAR y la interfaz debe
+    # advertirlo. Solo se emiten como partida si la cantidad medida/los
+    # parámetros así lo indican (0 por defecto = no aparecen).
+    # -----------------------------------------------------------------
+    "Alambre_THW_ml": 35.00,            # cable THW #12 (3 conductores juntos)
+    "Tuberia_agua_1_2_ml": 750.00,      # ramales de distribución
+    "Tuberia_agua_3_4_ml": 1000.00,     # alimentación principal
+    "Tuberia_sanitaria_4_ml": 1150.00,  # drenaje 4" PVC sanitaria
+    "Loseta_pared_bano_m2": 850.00,     # loseta de pared tipo cerámica + instalación
+    "Salpicadero_cocina_m2": 850.00,    # muro entre mesón y gabinete alto
+    "Lampara_ud": 2500.00,              # lámpara tipo led, suministro e instalación
+    "Pozo_septico_ud": 48000.00,        # pozo séptico instalado (cap. ~2,200 gal)
+    "Cisterna_m3": 11500.00,            # cisterna de concreto a presión, por m³
+    "Sistema_solar_kw": 65000.00,       # fotovoltaico instalado, por kW pico
+
     "MO_jornal_dia": 1800.00,
 
     # -----------------------------------------------------------------
@@ -141,7 +162,10 @@ PRECIOS_POR_VERIFICAR = frozenset({
     "Punto_sanitario_ud", "Registro_sanitario_ud", "Tuberia_agua_ml",
     "Tuberia_sanitaria_ml", "Punto_gas_ud", "Punto_clima_ud",
     "Puerta_exterior", "Impermeabilizante_azotea_m2",
-    "Cielo_raso_m2", "MO_jornal_dia",
+    "Cielo_raso_m2", "Alambre_THW_ml", "Tuberia_agua_1_2_ml",
+    "Tuberia_agua_3_4_ml", "Tuberia_sanitaria_4_ml", "Loseta_pared_bano_m2",
+    "Salpicadero_cocina_m2", "Lampara_ud", "Pozo_septico_ud",
+    "Cisterna_m3", "Sistema_solar_kw", "MO_jornal_dia",
 })
 
 # Un escalón más fuerte que PRECIOS_POR_VERIFICAR: no son estimaciones de
