@@ -19,7 +19,13 @@ fecha: "2026-07-26"
 # ---------------------------------------------------------------------------
 panel:
   ancho_util_m: 1.22          # [doc] panel estándar 1.22 x 2.44 m
-  largo_estandar_m: 2.44      # [doc]
+  largo_estandar_m: 2.44      # [doc] largo estándar PANEL DE MURO (ficha "Panel Covintec 3"")
+  # [doc] Largo estándar del PANEL DE LOSA: la ficha oficial "Qualylosa
+  # Covintec 4"" (QLOSA-4PULG-325-1.pdf, covintec.com/wp-content/uploads/
+  # 2024/08/QLOSA-4PULG-325-1.pdf) especifica "Ancho 1.22 m / Alto 3.25 m".
+  # Un panel de losa cubre 1.22 x 3.25 = 3.965 m². NO usar largo_estandar_m
+  # (2.44, de muros) para la losa: subestimaba el número de piezas.
+  losa_largo_estandar_m: 3.25
   largo_maximo_m: 6.10        # [doc] fabricable hasta 6.10 m
 
 # ---------------------------------------------------------------------------

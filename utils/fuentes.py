@@ -310,6 +310,23 @@ FICHA_COVINTEC = {
         cita="Ficha técnica Qualy Panel Covintec 4\" (México), peso sin aplanar",
         url="https://covintec.com/productos/qualy-panel-de-3x1-22x2-44m/",
     ),
+    "qualylosa_dimension_panel_m": Fuente(
+        valor="1.22 x 3.25 m (panel de LOSA; el de muro es 1.22 x 2.44 m)",
+        tipo="verificado",
+        cita="Ficha técnica oficial 'Qualylosa Covintec 4\"' (QLOSA-4PULG-325-1.pdf): "
+             "ancho 1.22 m, alto 3.25 m. Este es el largo que el motor usa para "
+             "contar paneles de losa (1.22 x 3.25 = 3.965 m² por pieza). Covintec "
+             "'11 pasos', paso 6: la Qualylosa se coloca 'con el acero grueso hacia "
+             "abajo en el sentido del claro corto'.",
+        url="https://covintec.com/wp-content/uploads/2024/08/QLOSA-4PULG-325-1.pdf",
+    ),
+    "qualylosa_peso_sin_aplanar_kg_m2": Fuente(
+        valor="3.75 kg/m²",
+        tipo="referencia",
+        cita="Ficha técnica oficial 'Qualylosa Covintec 4\"' (QLOSA-4PULG-325-1.pdf), "
+             "peso sin aplanar",
+        url="https://covintec.com/wp-content/uploads/2024/08/QLOSA-4PULG-325-1.pdf",
+    ),
     "reduccion_acero_pct": Fuente(
         valor="hasta 25%",
         tipo="referencia",

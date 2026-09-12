@@ -253,10 +253,24 @@ class Geometria:
 
     @property
     def n_paneles_losa(self) -> int:
-        """[doc] Losas: largo del claro / 1.22 m -> piezas (redondear hacia arriba)."""
+        """
+        Losas: cada panel Qualylosa cubre ancho × largo estándar
+        (1.22 × 3.25 m = 3.965 m²). El conteo debe cubrir el AREA de la losa,
+        no una sola línea.
+
+        Bug corregido (verificado con las fichas oficiales de Covintec):
+        antes se calculaba `sqrt(area) / 1.22`, que solo cuenta paneles a lo
+        largo de UN lado (112 m² daba 9 piezas). La ficha técnica oficial
+        "Qualylosa Covintec 4"" (QLOSA-4PULG-325-1.pdf) especifica un panel
+        de 1.22 × 3.25 m = 3.965 m², así que 112 m² necesitan
+        ceil(112 / 3.965) = 29 piezas. Los "11 pasos" de Covintec (paso 6)
+        confirman que la Qualylosa se coloca en el sentido del claro corto,
+        es decir que recorre TODA la losa (orientación), no una hilera.
+        """
         ancho = self.parametros["panel"]["ancho_util_m"]
-        lado = math.sqrt(self.area_planta_m2)
-        piezas_por_nivel = math.ceil(lado / ancho)
+        largo = self.parametros["panel"]["losa_largo_estandar_m"]
+        area_por_panel = ancho * largo
+        piezas_por_nivel = math.ceil(self.area_planta_m2 / area_por_panel)
         return piezas_por_nivel * self.niveles
 
     # -- interoperabilidad ------------------------------------------------
