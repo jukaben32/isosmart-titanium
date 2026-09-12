@@ -1,9 +1,8 @@
 import sys
-from pathlib import Path
 
 sys.path.insert(0, ".")
 
-from utils.dxf_importer import analizar_dxf, analizar_dxf_bytes  # noqa: E402
+from utils.dxf_importer import analizar_dxf_bytes  # noqa: E402
 from utils.escenarios import calcular_escenarios  # noqa: E402
 from utils.geometria import Geometria  # noqa: E402
 from utils.instalaciones import InstalacionesDetalle  # noqa: E402
@@ -11,9 +10,112 @@ from utils.pricebook import DEFAULT_PRICEBOOK  # noqa: E402
 from utils.qto import MotorQTO  # noqa: E402
 
 
+def _dxf_de_prueba_con_instalaciones() -> bytes:
+    """Devuelve un DXF autocontenido para que CI no dependa de archivos externos."""
+    entidades = [
+        "0",
+        "SECTION",
+        "2",
+        "ENTITIES",
+        "0",
+        "LWPOLYLINE",
+        "8",
+        "A-MUROS",
+        "70",
+        "1",
+        "10",
+        "0",
+        "20",
+        "0",
+        "10",
+        "26",
+        "20",
+        "0",
+        "10",
+        "26",
+        "20",
+        "20",
+        "10",
+        "0",
+        "20",
+        "20",
+    ]
+
+    for i in range(16):
+        entidades.extend([
+            "0",
+            "LINE",
+            "8",
+            "A-VENTANAS",
+            "10",
+            str(1 + i),
+            "20",
+            "0",
+            "11",
+            str(1.5 + i),
+            "21",
+            "0",
+        ])
+
+    for i in range(8):
+        entidades.extend([
+            "0",
+            "CIRCLE",
+            "8",
+            "I-ELECTRICA",
+            "10",
+            str(2 + i),
+            "20",
+            "5",
+            "40",
+            "0.1",
+        ])
+
+    for i in range(10):
+        entidades.extend([
+            "0",
+            "CIRCLE",
+            "8",
+            "I-ILUMINACION",
+            "10",
+            str(2 + i),
+            "20",
+            "10",
+            "40",
+            "0.1",
+        ])
+
+    entidades.extend([
+        "0",
+        "TEXT",
+        "8",
+        "A-TEXTOS",
+        "10",
+        "4",
+        "20",
+        "4",
+        "1",
+        "BATH 1",
+        "0",
+        "TEXT",
+        "8",
+        "A-TEXTOS",
+        "10",
+        "8",
+        "20",
+        "4",
+        "1",
+        "BATH 2",
+        "0",
+        "ENDSEC",
+        "0",
+        "EOF",
+    ])
+    return "\n".join(entidades).encode("utf-8")
+
+
 def test_importador_dxf_extrae_geometria_del_plano_generado():
-    plano = Path("..") / "plano_casa_moderna_lujo_instalaciones.dxf"
-    mediciones = analizar_dxf(plano)
+    mediciones = analizar_dxf_bytes(_dxf_de_prueba_con_instalaciones())
 
     assert mediciones.area_m2 > 300
     assert mediciones.perimetro_m > 90
@@ -67,4 +169,3 @@ def test_escenarios_comparan_lujo_y_mecanizado():
 
     assert lujo > economico
     assert mecanizado < lujo
-
